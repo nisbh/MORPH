@@ -9,19 +9,18 @@ from flask import Flask, render_template, abort
 from pathlib import Path
 from collections import deque
 
-from log_parser import parse_cowrie_log
+from log_parser import parse_cowrie_log, COWRIE_LOG
 from classifier import classify_session
 from dossier import generate, load, load_all, summarize_all
 
 app = Flask(__name__)
 
-LOG_PATH = "var/log/cowrie/cowrie.json"
 DECEPTION_LOG = "morph/deception.log"
 
 
 def get_sessions_with_classification() -> list[dict]:
     """Parse logs and classify all sessions."""
-    sessions = parse_cowrie_log(LOG_PATH)
+    sessions = parse_cowrie_log(COWRIE_LOG)
     results = []
     
     for session_id, session in sessions.items():

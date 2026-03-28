@@ -172,7 +172,8 @@ def print_summary(sessions: dict[str, dict[str, Any]]) -> None:
                 print(f"    ... and {len(session['downloads']) - 3} more")
 
 
+COWRIE_LOG = "/home/cowrie/cowrie/var/log/cowrie/cowrie.json"
+
 if __name__ == "__main__":
-    LOG_PATH = "var/log/cowrie/cowrie.json"
-    sessions = parse_cowrie_log(LOG_PATH)
+    sessions = parse_cowrie_log(COWRIE_LOG)
     print_summary(sessions)

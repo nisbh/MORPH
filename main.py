@@ -15,8 +15,7 @@ from classifier import classify_session
 from dossier import generate, summarize_all
 from deception import initialize as init_deception, adapt
 from app import app
-
-LOG_PATH = "var/log/cowrie/cowrie.json"
+from log_parser import COWRIE_LOG
 
 
 def process_sessions() -> int:
@@ -26,8 +25,8 @@ def process_sessions() -> int:
     print("=" * 60)
 
     # Step 1: Parse logs
-    print(f"\n[1/4] Parsing logs from: {LOG_PATH}")
-    sessions = parse_cowrie_log(LOG_PATH)
+    print(f"\n[1/4] Parsing logs from: {COWRIE_LOG}")
+    sessions = parse_cowrie_log(COWRIE_LOG)
     print(f"      Found {len(sessions)} sessions")
 
     if not sessions:
