@@ -172,7 +172,8 @@ def print_summary(sessions: dict[str, dict[str, Any]]) -> None:
                 print(f"    ... and {len(session['downloads']) - 3} more")
 
 
-COWRIE_LOG = r"\\wsl$\Ubuntu\home\nisar\morph\cowrie.json"
+# Path to local synced log file (synced from WSL by sync.py)
+COWRIE_LOG = r"C:\Users\nisar\OneDrive\Desktop\Github Projects\MORPH\cowrie.json"
 
 if __name__ == "__main__":
     sessions = parse_cowrie_log(COWRIE_LOG)

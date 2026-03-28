@@ -3,14 +3,16 @@
 MORPH - Main Entry Point
 
 Orchestrates the honeypot analysis pipeline:
-1. Parse Cowrie logs
-2. Classify each session
-3. Generate dossiers
-4. Adapt environment based on history
-5. Start Flask web UI
+1. Sync logs from WSL
+2. Parse Cowrie logs
+3. Classify each session
+4. Generate dossiers
+5. Adapt environment based on history
+6. Start Flask web UI
 """
 
 import sys
+from sync import sync_log_safe, watch_and_sync, stop_sync
 from log_parser import parse_cowrie_log, print_summary, COWRIE_LOG
 from classifier import classify_session
 from dossier import generate, summarize_all
@@ -24,6 +26,10 @@ def process_sessions() -> int:
     print("=" * 60)
     print("MORPH Honeypot Analysis Pipeline")
     print("=" * 60)
+
+    # Step 0: Sync logs from WSL
+    print("\n[0/5] Syncing logs from WSL...")
+    sync_log_safe()
 
     # Step 1: Parse logs
     print(f"\n[1/5] Parsing logs from: {COWRIE_LOG}")
@@ -90,8 +96,11 @@ def main():
     # Process existing logs and adapt environment
     process_sessions()
 
+    # Start background log sync
+    watch_and_sync(interval=30)
+
     # Start Flask app
-    print("\n[*] Starting MORPH Web UI...")
+    print("[*] Starting MORPH Web UI...")
     print("[*] Dashboard: http://localhost:5000")
     print("[*] NOTE: Run reactor_wsl.py in WSL for real-time deception")
     print("[*] Press Ctrl+C to stop\n")
@@ -100,6 +109,7 @@ def main():
         app.run(debug=False, host="0.0.0.0", port=5000)
     except KeyboardInterrupt:
         print("\n[*] Shutting down MORPH...")
+        stop_sync()
         sys.exit(0)
 
 
