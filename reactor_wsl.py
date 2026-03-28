@@ -12,8 +12,11 @@ Requires: pip3 install watchdog
 """
 
 import json
+import os
 import random
+import signal
 import string
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -28,9 +31,19 @@ COWRIE_LOG = "/home/cowrie/cowrie/var/log/cowrie/cowrie.json"
 HONEYFS_ROOT = "/home/cowrie/cowrie/honeyfs"
 REACTOR_LOG = "/home/nisar/morph/reactor.log"
 
+# Cowrie fs.pickle paths
+FS_PICKLE = "/home/cowrie/cowrie/share/cowrie/fs.pickle"
+FSCTL_PATH = "/home/cowrie/cowrie/cowrie-env/bin/fsctl"
+COWRIE_PYTHON = "/home/cowrie/cowrie/cowrie-env/bin/python3"
+COWRIE_PID_FILE = "/home/cowrie/cowrie/var/run/cowrie.pid"
+
 # Track file position for tail-like behavior
 _file_position = 0
 _position_lock = threading.Lock()
+
+# Batch fsctl commands to avoid too many subprocess calls
+_pending_fs_commands: list[str] = []
+_fs_commands_lock = threading.Lock()
 
 
 def _log(message: str) -> None:
@@ -45,8 +58,104 @@ def _log(message: str) -> None:
         f.write(log_entry)
 
 
+def _register_in_pickle(relative_path: str, is_directory: bool = False) -> None:
+    """Queue a path to be registered in Cowrie's fs.pickle."""
+    # Convert relative path to absolute path as seen in fake filesystem
+    abs_path = "/" + relative_path.lstrip("/")
+    
+    with _fs_commands_lock:
+        # Add mkdir commands for parent directories
+        parts = Path(abs_path).parts
+        for i in range(2, len(parts)):
+            dir_path = "/".join(parts[:i])
+            mkdir_cmd = f"mkdir {dir_path}"
+            if mkdir_cmd not in _pending_fs_commands:
+                _pending_fs_commands.append(mkdir_cmd)
+        
+        # Add the file/directory itself
+        if is_directory:
+            cmd = f"mkdir {abs_path}"
+        else:
+            cmd = f"touch {abs_path}"
+        
+        if cmd not in _pending_fs_commands:
+            _pending_fs_commands.append(cmd)
+
+
+def _flush_fs_commands() -> bool:
+    """Execute all pending fsctl commands and reload Cowrie."""
+    with _fs_commands_lock:
+        if not _pending_fs_commands:
+            return True
+        
+        commands = _pending_fs_commands.copy()
+        _pending_fs_commands.clear()
+    
+    # Build fsctl input
+    fsctl_input = "\n".join(commands) + "\nexit\n"
+    
+    try:
+        result = subprocess.run(
+            [COWRIE_PYTHON, FSCTL_PATH, FS_PICKLE],
+            input=fsctl_input,
+            text=True,
+            capture_output=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            _log(f"fsctl error: {result.stderr}")
+            return False
+        
+        _log(f"Registered {len(commands)} paths in fs.pickle")
+        
+        # Reload Cowrie to pick up changes
+        _reload_cowrie()
+        return True
+        
+    except subprocess.TimeoutExpired:
+        _log("fsctl timed out")
+        return False
+    except FileNotFoundError:
+        _log(f"fsctl not found at {FSCTL_PATH}")
+        return False
+    except PermissionError as e:
+        _log(f"Permission error running fsctl: {e}")
+        return False
+    except Exception as e:
+        _log(f"Error running fsctl: {e}")
+        return False
+
+
+def _reload_cowrie() -> bool:
+    """Send SIGHUP to Cowrie to reload fs.pickle."""
+    try:
+        pid_path = Path(COWRIE_PID_FILE)
+        if not pid_path.exists():
+            _log(f"Cowrie PID file not found: {COWRIE_PID_FILE}")
+            return False
+        
+        pid = int(pid_path.read_text().strip())
+        os.kill(pid, signal.SIGHUP)
+        _log(f"Sent SIGHUP to Cowrie (PID {pid})")
+        return True
+        
+    except ValueError as e:
+        _log(f"Invalid PID in file: {e}")
+        return False
+    except ProcessLookupError:
+        _log("Cowrie process not found")
+        return False
+    except PermissionError as e:
+        _log(f"Permission error sending SIGHUP: {e}")
+        return False
+    except Exception as e:
+        _log(f"Error reloading Cowrie: {e}")
+        return False
+
+
 def _write_honeyfs_file(relative_path: str, content: str) -> bool:
-    """Write a file into the honeyfs directory."""
+    """Write a file into the honeyfs directory and register in fs.pickle."""
     full_path = Path(HONEYFS_ROOT) / relative_path
     
     if full_path.exists():
@@ -56,6 +165,11 @@ def _write_honeyfs_file(relative_path: str, content: str) -> bool:
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content, encoding="utf-8")
         _log(f"Created: {relative_path}")
+        
+        # Register in fs.pickle
+        _register_in_pickle(relative_path, is_directory=False)
+        _flush_fs_commands()
+        
         return True
     except IOError as e:
         _log(f"Error creating {relative_path}: {e}")
@@ -63,7 +177,7 @@ def _write_honeyfs_file(relative_path: str, content: str) -> bool:
 
 
 def _create_empty_file(relative_path: str) -> bool:
-    """Create an empty file in honeyfs."""
+    """Create an empty file in honeyfs and register in fs.pickle."""
     full_path = Path(HONEYFS_ROOT) / relative_path
     
     if full_path.exists():
@@ -73,6 +187,11 @@ def _create_empty_file(relative_path: str) -> bool:
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.touch()
         _log(f"Created (empty): {relative_path}")
+        
+        # Register in fs.pickle
+        _register_in_pickle(relative_path, is_directory=False)
+        _flush_fs_commands()
+        
         return True
     except IOError as e:
         _log(f"Error creating {relative_path}: {e}")
