@@ -21,13 +21,24 @@ Traditional honeypots are static and easily detectable, limiting their ability t
 ## 3. SYSTEM ARCHITECTURE
 
 ```
-Attacker → Cowrie → cowrie.json → Parser → Classifier → Dossier
-                                                        ↓
-                                              Adaptor (cross-session)
-                                                        ↓
-                                            Reactor (real-time honeyfs)
-                                                        ↓
-                                                   Flask UI
+┌─────────────────────────────────────────────────────────────┐
+│                         MORPH                               │
+├─────────────┬─────────────┬─────────────┬──────────────────┤
+│ log_parser  │ classifier  │  dossier    │     app.py       │
+│   .py       │    .py      │    .py      │   (Flask UI)     │
+├─────────────┴─────────────┴─────────────┴──────────────────┤
+│ deception.py │ adaptor.py │   reactor.py  │    sync.py     │
+├────────────────────────────────────────────────────────────┤
+│                    main.py (orchestrator)                   │
+└────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Cowrie Honeypot                        │
+│  - cowrie.json logs                                         │
+│  - honeyfs/ (fake filesystem)                               │
+│  - fs.pickle (filesystem metadata)                          │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 **Primary metric:** attacker dwell time
@@ -37,206 +48,175 @@ Attacker → Cowrie → cowrie.json → Parser → Classifier → Dossier
 
 ## 4. COMPONENTS — STATUS
 
-### Capture — Cowrie
-- Logs: commands, sessions, login attempts
-- Log location: `/home/nisar/cowrie/var/log/cowrie/cowrie.json` (Fedora)
-- Status: ✅ Built and tested
-
-### Parser — `log_parser.py`
-- Reads `cowrie.json` line by line
-- Groups events by session ID
-- Extracts: IP, timestamps, login attempts, commands, downloads, duration
-- Status: ✅ Built and tested
-
-### Classifier — `classifier.py`
-- Rule-based, no ML
-- Output:
-  - type: `bot` / `human`
-  - intent: `recon` / `exploit` / `persistence`
-  - risk: `low` / `medium` / `high`
-  - matched_rules: list of triggered rule names
-- Known issue: bot detection not triggering on rapid command input — needs tuning
-- Status: ✅ Built, ⚠️ bot detection needs fix
-
-### Dossier Generator — `dossier.py`
-- Input: session + classification
-- Output: JSON file per session in `dossiers/`
-- Includes: session timeline, commands, intent, risk, behavior pattern, adaptation report
-- Functions: `generate()`, `load_all()`
-- Status: ✅ Built and tested
-
-### Deception — Level 1 (Cowrie config)
-- Hostname: `web-prod-01`
-- Fake users in `honeyfs/etc/passwd`: deploy, jenkins
-- Fake `honeyfs/home/deploy/.bash_history` with credentials
-- Fake `honeyfs/var/www/html/index.html`
-- Fake `honeyfs/opt/scripts/backup.sh`
-- Fake crontab in `honeyfs/var/spool/cron/root`
-- `honeyfs/etc/hostname` → `web-prod-01`
-- `honeyfs/etc/issue` → Ubuntu 22.04.3 LTS
-- Cowrie `userdb.txt`: accepts any password for root
-- Status: ✅ Built and tested
-
-### Deception — Level 2 — `reactor_wsl.py` → rename to `reactor.py` on Fedora
-- Watches live `cowrie.json` for new events using watchdog
-- Triggers reactions based on attacker commands in real time
-- Writes new files into honeyfs
-- Updates `fs.pickle` via fsctl subprocess so Cowrie serves new files immediately
-- Sends SIGHUP to Cowrie after pickle update to reload
-- Reactions:
-  - `ls /var/www` → creates `config.php` with fake DB creds + `.git/config`
-  - `cat /etc/passwd` or `cat /etc/shadow` → creates `deploy/.ssh/authorized_keys`
-  - `ps aux` or `top` → creates `tmp/.monitor`
-  - `wget` / `curl` → creates random `.sh` file in `/tmp/`
-  - `find` / `locate` → creates fake `.sql.gz` backup file
-- Logs to: `morph/reactor.log`
-- Status: ✅ Built and tested (full reactive loop verified)
-
-### Deception — Level 3 — `adaptor.py`
-- Reads all previous dossiers on startup
-- Modifies honeyfs before each new session based on attack history
-- Rules:
-  - `/opt/backup` targeted 4+ times → relocate to randomized path
-  - 2+ sessions tried `/etc/shadow` → replace with fake crackable shadow file
-  - Bot detected previously → inflate `honeyfs/etc/services`
-  - Previous human+exploit → plant fake WIP exploit in `/tmp/work/`
-- Generates adaptation report added to each dossier
-- Logs to: `morph/adaptor.log`
-- Status: ✅ Built and tested (2 adaptations confirmed in honeyfs)
-
-### Flask UI — `app.py`
-- Routes:
-  - `GET /` → dashboard (session counts, risk summary, recent dossiers)
-  - `GET /sessions` → session table with classification badges
-  - `GET /dossier/<session_id>` → full dossier detail
-  - `GET /live-logs` → latest 20 log lines (HTMX polling)
-  - `GET /api/logs` → raw log API
-  - `GET /adaptations` → adaptation history
-- Dark theme, no external CSS frameworks
-- Status: ✅ Built and tested
-
-### Pipeline — `main.py`
-- Run order:
-  1. Sync log (currently manual, sync.py not yet built)
-  2. Parse sessions
-  3. Classify sessions
-  4. Generate dossiers
-  5. Run adaptor (cross-session environment changes)
-  6. Start Flask
-  7. Note: reactor runs independently as separate process
+| File | Purpose | Status |
+|------|---------|--------|
+| `main.py` | Entry point - runs pipeline then starts Flask | ✅ |
+| `log_parser.py` | Parses cowrie.json, aggregates by session | ✅ |
+| `classifier.py` | Rule-based classification (bot/human, intent, risk) | ✅ |
+| `dossier.py` | Generates JSON dossiers in morph/dossiers/ | ✅ |
+| `deception.py` | Creates static fake assets (SQL dumps, API keys, .env) | ✅ |
+| `adaptor.py` | Learns from history, adapts environment per-session | ✅ |
+| `reactor_wsl.py` | Real-time file watcher, plants files in honeyfs | ✅ |
+| `reactor.py` | Windows-side reaction logic (not used standalone) | ✅ |
+| `sync.py` | Copies cowrie.json from WSL to Windows | ✅ |
+| `app.py` | Flask web UI with HTMX | ✅ |
+| `templates/` | Jinja2 templates (base, index, sessions, dossier, live_logs) | ✅ |
 
 ---
 
-## 5. WHAT IS NOT BUILT YET
+## 5. KEY PATHS
 
-- `sync.py` — auto log sync, replaces manual `cp` command
-- Bot classifier fix — rapid commands not triggering bot type
-- OSINT enrichment — `ipinfo.io` integration for IP geolocation + ASN
-- Behavior fingerprinting (post-MVP)
-- Attack prediction (post-MVP)
-- Embeddings / lightweight ML (post-MVP)
-
----
-
-## 6. CONSTRAINTS
-
-- Solo dev
-- No paid APIs
-- No heavy ML
-- Keep modular + simple
-- Rule-based only for MVP
-
----
-
-## 7. EXCLUDED (FOR NOW)
-
-- Deep learning
-- Reinforcement learning
-- LLM pipelines
-- SIEM integration
-- Multi-node systems
-
----
-
-## 8. NEXT STEPS (ORDERED)
-
-1. Fresh Cowrie install on Fedora (dnf)
-2. Clone MORPH repo into `/home/nisar/morph/`
-3. Fix file paths (remove WSL-specific paths, use native Linux paths)
-4. Build `sync.py` (auto log sync, no longer needed on same filesystem)
-5. Fix bot classifier
-6. OSINT enrichment via `ipinfo.io`
-7. VPS deployment
-
----
-
-## 9. ENVIRONMENT — FEDORA (NEW)
-
+### Current (Windows+WSL) - NEEDS UPDATE FOR LINUX
 ```
-/home/nisar/
-├── cowrie/                  ← Cowrie installation
-│   ├── cowrie-env/          ← Python virtualenv
-│   ├── honeyfs/             ← Fake filesystem served to attackers
-│   ├── etc/cowrie.cfg       ← Cowrie config
-│   ├── etc/userdb.txt       ← Login credentials
-│   ├── src/cowrie/data/fs.pickle  ← Virtual filesystem registry
-│   └── var/log/cowrie/cowrie.json ← Live session log
-│
-└── morph/                   ← MORPH project
-    ├── log_parser.py
-    ├── classifier.py
-    ├── dossier.py
-    ├── adaptor.py
-    ├── reactor.py
-    ├── app.py
-    ├── main.py
-    ├── templates/
-    ├── dossiers/            ← Generated, gitignored
-    ├── reactor.log          ← Generated, gitignored
-    └── adaptor.log          ← Generated, gitignored
+Cowrie installation:    /home/cowrie/cowrie/
+Cowrie logs:            /home/cowrie/cowrie/var/log/cowrie/cowrie.json
+Cowrie honeyfs:         /home/cowrie/cowrie/honeyfs/
+Cowrie fs.pickle:       /home/cowrie/cowrie/src/cowrie/data/fs.pickle
+Cowrie PID file:        /home/cowrie/cowrie/twistd.pid
+Cowrie venv python:     /home/cowrie/cowrie/cowrie-env/bin/python3
+fsctl tool:             /home/cowrie/cowrie/cowrie-env/bin/fsctl
+
+MORPH logs:             morph/reactor.log, morph/adaptor.log, morph/sync.log, morph/deception.log
+MORPH dossiers:         morph/dossiers/<session_id>.json
 ```
 
-**Single user:** `nisar`
-**Single filesystem:** no WSL, no path bridging, no manual sync
-**Cowrie log path:** `/home/nisar/cowrie/var/log/cowrie/cowrie.json`
-**fs.pickle path:** `/home/nisar/cowrie/src/cowrie/data/fs.pickle`
-**twistd.pid path:** `/home/nisar/cowrie/twistd.pid`
+---
+
+## 6. CLASSIFICATION RULES
+
+**Type (bot vs human):**
+- Bot: rapid commands (>2/sec), repeated logins (>5), scanner patterns, known sequences
+- Human: slow interaction, varied commands, exploratory cd/ls
+
+**Intent:**
+- Recon: whoami, uname, ls, cat /etc/passwd, ifconfig
+- Exploit: wget, curl, chmod +x, ./payload, python -c
+- Persistence: crontab, .bashrc, adduser, authorized_keys
+
+**Risk:**
+- Low: only recon, no downloads
+- Medium: exploit attempts, no execution
+- High: downloads + execution, or persistence
 
 ---
 
-## 10. COWRIE INSTALL — FEDORA
+## 7. REACTOR TRIGGERS
+
+| Attacker Command | Files Created in honeyfs |
+|-----------------|--------------------------|
+| `ls/cd /var/www` | `var/www/html/config.php`, `.git/config` |
+| `ps aux`, `top` | `tmp/.monitor` |
+| `cat /etc/passwd` | `home/deploy/.ssh/authorized_keys`, `.bash_history` |
+| `find`, `locate` | `opt/backup/db_backup_2024.sql.gz`, `opt/scripts/backup.sh` |
+| `wget`, `curl` | `tmp/<random>.sh` (fake prior malware) |
+
+After creating files, reactor:
+1. Runs fsctl to register in fs.pickle
+2. Sends SIGHUP to Cowrie to reload
+
+---
+
+## 8. ADAPTOR RULES
+
+| Condition | Adaptation |
+|-----------|------------|
+| Backup path targeted | Move to random path like `/opt/.cache/abc123/` |
+| 2+ shadow attempts | Replace with crackable md5crypt hashes |
+| Bot detected | Add extended /etc/services (50+ fake ports) |
+| Human + exploit | Plant fake WIP exploit in /tmp/work/ |
+
+---
+
+## 9. DOSSIER STRUCTURE
+
+```json
+{
+  "session_id": "abc123",
+  "src_ip": "192.168.1.100",
+  "start_time": "2024-03-15T10:30:00",
+  "end_time": "2024-03-15T10:35:45",
+  "duration_seconds": 345,
+  "login_attempts": [{"username": "root", "password": "admin", "success": false}],
+  "commands": ["whoami", "uname -a"],
+  "downloads": ["http://evil.com/bot"],
+  "classification": {
+    "type": "bot",
+    "intent": "exploit",
+    "risk": "high",
+    "matched_rules": ["rapid_commands", "downloads:1"]
+  },
+  "environment_adaptations": {...},
+  "generated_at": "2024-03-15T14:22:33Z"
+}
+```
+
+---
+
+## 10. WEB UI ROUTES
+
+| Route | Description |
+|-------|-------------|
+| `GET /` | Dashboard with stats |
+| `GET /sessions` | Session list with badges |
+| `GET /dossier/<id>` | Full dossier view |
+| `GET /live-logs` | Auto-refresh log tail (HTMX every 3s) |
+| `GET /api/logs` | HTMX endpoint for log fragment |
+
+---
+
+## 11. RUNNING ON LINUX
 
 ```bash
-sudo dnf install -y git python3 python3-virtualenv openssl-devel \
-  libffi-devel gcc python3-devel
+# Install dependencies
+pip install flask watchdog
 
-git clone https://github.com/cowrie/cowrie ~/cowrie
-cd ~/cowrie
-virtualenv cowrie-env
-source cowrie-env/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-cp etc/cowrie.cfg.dist etc/cowrie.cfg
+# Terminal 1: Reactor (real-time deception)
+python3 reactor.py
+
+# Terminal 2: Main pipeline + Flask
+python3 main.py
+# Dashboard at http://localhost:5000
 ```
 
-Then apply all Level 1 honeyfs changes and userdb.txt config from Section 4 above.
+**Pipeline steps:**
+1. Parse cowrie.json → sessions dict
+2. Classify each session
+3. Generate dossiers
+4. Run per-session deception
+5. Run environment adaptation from history
+6. Start Flask UI
 
 ---
 
-## 11. KEY COPILOT PROMPTS (FOR CONTINUATION)
+## 12. MIGRATION CHECKLIST FOR LINUX
 
-All original prompts remain valid. When continuing on Fedora, update any hardcoded paths:
-- Replace `\\wsl$\Ubuntu\home\nisar\morph\` with `/home/nisar/morph/`
-- Replace `/home/cowrie/cowrie/` with `/home/nisar/cowrie/`
-- `reactor_wsl.py` becomes `reactor.py`
+1. **Delete sync.py dependency** - no longer needed on same filesystem
+2. **Update log_parser.py** - change `COWRIE_LOG`:
+   ```python
+   COWRIE_LOG = "/home/cowrie/cowrie/var/log/cowrie/cowrie.json"
+   ```
+3. **Update adaptor.py** - change `HONEYFS_ROOT`:
+   ```python
+   HONEYFS_ROOT = "/home/cowrie/cowrie/honeyfs"
+   ```
+4. **Rename reactor_wsl.py → reactor.py** - it's now your main reactor
+5. **Update main.py** - remove sync imports and calls:
+   - Remove: `from sync import sync_log_safe, watch_and_sync, stop_sync`
+   - Remove: `sync_log_safe()` call
+   - Remove: `watch_and_sync(interval=30)` call
+   - Remove: `stop_sync()` call
 
 ---
 
-## 12. TONE + STRATEGY
+## 13. DEPENDENCIES
 
-- No fluff, no hype, practical > fancy
-- Primary metric: attacker dwell time
-- Differentiator: adaptive behavior based on attacker actions
-- MORPH = lightweight adaptive honeypot that captures attacker actions,
-  classifies behavior (rule-based), adapts environment,
-  and generates structured attacker dossiers
+```
+flask
+watchdog
+```
+
+---
+
+## 14. CURRENT STATE
+
+All modules implemented and tested on Windows+WSL. Ready to consolidate on native Linux.
