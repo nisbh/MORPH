@@ -14,7 +14,6 @@ from log_parser import parse_cowrie_log, print_summary, COWRIE_LOG
 from classifier import classify_session
 from dossier import generate, summarize_all
 from deception import initialize as init_deception, adapt
-from reactor import start_reactor, stop_reactor
 from app import app
 
 
@@ -81,20 +80,16 @@ def main():
     # Process existing logs
     process_sessions()
 
-    # Start reactor (real-time deception)
-    print("\n[*] Starting MORPH Reactor (real-time deception)...")
-    reactor_observer = start_reactor()
-
     # Start Flask app
-    print("[*] Starting MORPH Web UI...")
+    print("\n[*] Starting MORPH Web UI...")
     print("[*] Dashboard: http://localhost:5000")
+    print("[*] NOTE: Run reactor_wsl.py in WSL for real-time deception")
     print("[*] Press Ctrl+C to stop\n")
 
     try:
         app.run(debug=False, host="0.0.0.0", port=5000)
     except KeyboardInterrupt:
         print("\n[*] Shutting down MORPH...")
-        stop_reactor(reactor_observer)
         sys.exit(0)
 
 

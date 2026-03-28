@@ -1,23 +1,36 @@
 #!/usr/bin/env python3
 """
-MORPH - Reactive Deception Layer (Windows Side)
+MORPH - Reactive Deception Layer (WSL Side)
 
-Provides reaction logic for planting fake files into Cowrie's honeyfs.
-This module does NOT watch files - it exposes process_event() to be called
-by external log processors.
+Standalone script to run INSIDE WSL. Watches Cowrie logs in real-time
+and plants fake files into honeyfs/ based on attacker behavior.
 
-For real-time monitoring, run reactor_wsl.py inside WSL.
+Usage (from WSL):
+    python3 reactor_wsl.py
+
+Requires: pip3 install watchdog
 """
 
+import json
 import random
 import string
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Any
+from typing import Callable
 
-# Paths (Windows accessing WSL filesystem)
-HONEYFS_ROOT = r"\\wsl$\Ubuntu\home\cowrie\cowrie\honeyfs"
-REACTOR_LOG = "morph/reactor.log"
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+# Paths (native Linux paths in WSL)
+COWRIE_LOG = "/home/cowrie/cowrie/var/log/cowrie/cowrie.json"
+HONEYFS_ROOT = "/home/cowrie/cowrie/honeyfs"
+REACTOR_LOG = "/home/nisar/morph/reactor.log"
+
+# Track file position for tail-like behavior
+_file_position = 0
+_position_lock = threading.Lock()
 
 
 def _log(message: str) -> None:
@@ -36,7 +49,6 @@ def _write_honeyfs_file(relative_path: str, content: str) -> bool:
     """Write a file into the honeyfs directory."""
     full_path = Path(HONEYFS_ROOT) / relative_path
     
-    # Don't overwrite if already exists
     if full_path.exists():
         return False
     
@@ -176,7 +188,6 @@ exit 0
 def react_to_www(cmd: str, session_id: str) -> None:
     """React to /var/www exploration."""
     _log(f"[{session_id}] Triggered: www exploration ({cmd})")
-    
     _write_honeyfs_file("var/www/html/config.php", FAKE_CONFIG_PHP)
     _write_honeyfs_file("var/www/html/.git/config", FAKE_GIT_CONFIG)
 
@@ -184,14 +195,12 @@ def react_to_www(cmd: str, session_id: str) -> None:
 def react_to_process_list(cmd: str, session_id: str) -> None:
     """React to process listing commands."""
     _log(f"[{session_id}] Triggered: process listing ({cmd})")
-    
     _write_honeyfs_file("tmp/.monitor", FAKE_MONITOR_SCRIPT)
 
 
 def react_to_passwd_access(cmd: str, session_id: str) -> None:
     """React to password file access."""
     _log(f"[{session_id}] Triggered: passwd/shadow access ({cmd})")
-    
     _write_honeyfs_file("home/deploy/.ssh/authorized_keys", FAKE_SSH_KEY)
     _write_honeyfs_file("home/deploy/.bash_history", FAKE_BASH_HISTORY)
 
@@ -199,7 +208,6 @@ def react_to_passwd_access(cmd: str, session_id: str) -> None:
 def react_to_file_search(cmd: str, session_id: str) -> None:
     """React to find/locate commands."""
     _log(f"[{session_id}] Triggered: file search ({cmd})")
-    
     _create_empty_file("opt/backup/db_backup_2024.sql.gz")
     _write_honeyfs_file("opt/scripts/backup.sh", FAKE_BACKUP_SCRIPT)
 
@@ -207,7 +215,6 @@ def react_to_file_search(cmd: str, session_id: str) -> None:
 def react_to_download(cmd: str, session_id: str) -> None:
     """React to wget/curl downloads."""
     _log(f"[{session_id}] Triggered: download attempt ({cmd})")
-    
     fake_name = f".{_random_string(6)}.sh"
     fake_content = FAKE_MALWARE_PLACEHOLDER.format(
         hash=_random_string(32),
@@ -219,7 +226,6 @@ def react_to_download(cmd: str, session_id: str) -> None:
 # === Reaction Rules ===
 
 REACTION_RULES: list[tuple[list[str], Callable]] = [
-    # (patterns to match, handler function)
     (["ls /var/www", "cd /var/www", "ls -la /var/www"], react_to_www),
     (["ps aux", "ps -ef", "top", "htop"], react_to_process_list),
     (["cat /etc/passwd", "cat /etc/shadow", "/etc/passwd", "/etc/shadow"], react_to_passwd_access),
@@ -236,38 +242,103 @@ def check_reactions(command: str, session_id: str) -> None:
         for pattern in patterns:
             if pattern.lower() in cmd_lower:
                 handler(command, session_id)
-                return  # Only trigger one reaction per command
+                return
 
 
-def process_event(event: dict[str, Any]) -> None:
-    """
-    Process a single Cowrie log event and trigger reactions.
+class CowrieLogHandler(FileSystemEventHandler):
+    """Handle file modification events for cowrie.json."""
     
-    Args:
-        event: A dict parsed from a cowrie.json log line
-    """
-    session_id = event.get("session", "unknown")
-    command = event.get("input", "")
+    def on_modified(self, event):
+        if event.src_path.endswith("cowrie.json"):
+            self._process_new_lines()
     
-    if command:
-        check_reactions(command, session_id)
+    def _process_new_lines(self):
+        global _file_position
+        
+        try:
+            with _position_lock:
+                with open(COWRIE_LOG, "r", encoding="utf-8") as f:
+                    f.seek(_file_position)
+                    new_lines = f.readlines()
+                    _file_position = f.tell()
+            
+            for line in new_lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                try:
+                    event = json.loads(line)
+                    self._handle_event(event)
+                except json.JSONDecodeError:
+                    continue
+        
+        except IOError as e:
+            _log(f"Error reading log: {e}")
+    
+    def _handle_event(self, event: dict) -> None:
+        """Process a single log event."""
+        session_id = event.get("session", "unknown")
+        command = event.get("input", "")
+        
+        if command:
+            check_reactions(command, session_id)
+
+
+def _init_file_position():
+    """Initialize file position to end of file."""
+    global _file_position
+    
+    log_path = Path(COWRIE_LOG)
+    if log_path.exists():
+        _file_position = log_path.stat().st_size
+        _log(f"Initialized at position {_file_position}")
+    else:
+        _file_position = 0
+        _log("Log file not found, starting at position 0")
+
+
+def start_reactor() -> Observer:
+    """Start the reactor file watcher."""
+    _log("Starting MORPH Reactor (WSL)")
+    
+    Path(HONEYFS_ROOT).mkdir(parents=True, exist_ok=True)
+    _init_file_position()
+    
+    event_handler = CowrieLogHandler()
+    observer = Observer()
+    
+    log_dir = str(Path(COWRIE_LOG).parent)
+    observer.schedule(event_handler, log_dir, recursive=False)
+    observer.start()
+    
+    _log(f"Watching: {COWRIE_LOG}")
+    _log(f"Honeyfs root: {HONEYFS_ROOT}")
+    
+    return observer
+
+
+def stop_reactor(observer: Observer) -> None:
+    """Stop the reactor."""
+    _log("Stopping MORPH Reactor")
+    observer.stop()
+    observer.join()
 
 
 if __name__ == "__main__":
-    print("MORPH Reactor (Windows Side)")
+    print("MORPH Reactor (WSL) - Real-time Deception Layer")
     print("=" * 60)
+    print(f"Monitoring: {COWRIE_LOG}")
     print(f"Honeyfs root: {HONEYFS_ROOT}")
     print(f"Log file: {REACTOR_LOG}")
-    print()
-    print("This module provides process_event() for external callers.")
-    print("For real-time monitoring, run reactor_wsl.py inside WSL.")
-    print()
+    print("\nPress Ctrl+C to stop\n")
     
-    # Test with a sample event
-    print("Testing with sample event...")
-    test_event = {
-        "session": "test_session",
-        "input": "ls /var/www"
-    }
-    process_event(test_event)
-    print("Done. Check morph/reactor.log for output.")
+    observer = start_reactor()
+    
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        stop_reactor(observer)
+        print("Done.")
