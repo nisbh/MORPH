@@ -13,9 +13,10 @@ Orchestrates the honeypot analysis pipeline:
 import sys
 from log_parser import parse_cowrie_log, print_summary, COWRIE_LOG
 from classifier import classify_session
-from dossier import generate, summarize_all
+from dossier import generate, summarize_all, DOSSIERS_DIR
 from deception import initialize as init_deception, adapt
 from adaptor import adapt_environment, generate_adaptation_report
+from osint import enrich_all_dossiers
 from app import app
 
 
@@ -26,7 +27,7 @@ def process_sessions() -> int:
     print("=" * 60)
 
     # Step 1: Parse logs
-    print(f"\n[1/4] Parsing logs from: {COWRIE_LOG}")
+    print(f"\n[1/5] Parsing logs from: {COWRIE_LOG}")
     sessions = parse_cowrie_log(COWRIE_LOG)
     print(f"      Found {len(sessions)} sessions")
 
@@ -35,7 +36,7 @@ def process_sessions() -> int:
         return 0
 
     # Step 2: Classify sessions
-    print("\n[2/4] Classifying sessions...")
+    print("\n[2/5] Classifying sessions...")
     classifications = {}
     for session_id, session in sessions.items():
         classifications[session_id] = classify_session(session)
@@ -47,14 +48,19 @@ def process_sessions() -> int:
     print(f"      High risk: {high_risk}")
 
     # Step 3: Generate dossiers
-    print("\n[3/4] Generating dossiers...")
+    print("\n[3/5] Generating dossiers...")
     for session_id, session in sessions.items():
         classification = classifications[session_id]
         generate(session, classification)
     print(f"      Generated {len(sessions)} dossiers")
 
+    # Step 3.5: OSINT enrichment
+    print("\n[3.5/5] Enriching dossiers with OSINT...")
+    osint_result = enrich_all_dossiers(DOSSIERS_DIR)
+    print(f"      Enriched: {osint_result['enriched']}, Skipped: {osint_result['skipped']}, Failed: {osint_result['failed']}")
+
     # Step 4: Initialize deception & adapt per-session
-    print("\n[4/4] Running deception adaptations...")
+    print("\n[4/5] Running deception adaptations...")
     init_deception()
     adaptations = 0
     for session_id, session in sessions.items():
@@ -64,8 +70,8 @@ def process_sessions() -> int:
             adaptations += len(actions)
     print(f"      Applied {adaptations} per-session adaptations")
 
-    # Adapt environment based on history
-    print("\n      Adapting environment from attack history...")
+    # Step 5: Start Flask app
+    print("\n[5/5] Adapt environment from attack history...")
     env_adaptations = adapt_environment()
     adaptation_report = generate_adaptation_report()
     print(f"      Applied {len(env_adaptations)} environment adaptations")

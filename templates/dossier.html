@@ -14,6 +14,28 @@
             <span class="detail-label">Source IP:</span>
             <span>{{ dossier.src_ip or 'Unknown' }}</span>
             
+            {% if dossier.osint and dossier.osint.country %}
+            <span class="detail-label">Location:</span>
+            <span>{{ dossier.osint.country_flag or '🌐' }} {{ dossier.osint.city or 'Unknown' }}, {{ dossier.osint.region or '' }} {{ dossier.osint.country or '' }}</span>
+            
+            <span class="detail-label">Organization:</span>
+            <span>{{ dossier.osint.org or 'Unknown' }}</span>
+            
+            <span class="detail-label">Timezone:</span>
+            <span>{{ dossier.osint.timezone or 'Unknown' }}</span>
+            
+            {% if dossier.osint.is_tor or dossier.osint.is_vpn %}
+            <span class="detail-label">Privacy:</span>
+            <span>
+                {% if dossier.osint.is_tor %}<span class="badge" style="background: #da3633;">⚠️ TOR</span>{% endif %}
+                {% if dossier.osint.is_vpn %}<span class="badge" style="background: #f0883e;">⚠️ VPN/Proxy</span>{% endif %}
+            </span>
+            {% endif %}
+            {% elif dossier.osint and dossier.osint.is_private %}
+            <span class="detail-label">Network:</span>
+            <span>🏠 Private/Internal Network</span>
+            {% endif %}
+            
             <span class="detail-label">Start Time:</span>
             <span>{{ dossier.start_time or 'Unknown' }}</span>
             
