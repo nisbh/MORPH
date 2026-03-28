@@ -3,16 +3,14 @@
 MORPH - Main Entry Point
 
 Orchestrates the honeypot analysis pipeline:
-1. Sync logs from WSL
-2. Parse Cowrie logs
-3. Classify each session
-4. Generate dossiers
-5. Adapt environment based on history
-6. Start Flask web UI
+1. Parse Cowrie logs
+2. Classify each session
+3. Generate dossiers
+4. Adapt environment based on history
+5. Start Flask web UI
 """
 
 import sys
-from sync import sync_log_safe, watch_and_sync, stop_sync
 from log_parser import parse_cowrie_log, print_summary, COWRIE_LOG
 from classifier import classify_session
 from dossier import generate, summarize_all
@@ -27,12 +25,8 @@ def process_sessions() -> int:
     print("MORPH Honeypot Analysis Pipeline")
     print("=" * 60)
 
-    # Step 0: Sync logs from WSL
-    print("\n[0/5] Syncing logs from WSL...")
-    sync_log_safe()
-
     # Step 1: Parse logs
-    print(f"\n[1/5] Parsing logs from: {COWRIE_LOG}")
+    print(f"\n[1/4] Parsing logs from: {COWRIE_LOG}")
     sessions = parse_cowrie_log(COWRIE_LOG)
     print(f"      Found {len(sessions)} sessions")
 
@@ -41,7 +35,7 @@ def process_sessions() -> int:
         return 0
 
     # Step 2: Classify sessions
-    print("\n[2/5] Classifying sessions...")
+    print("\n[2/4] Classifying sessions...")
     classifications = {}
     for session_id, session in sessions.items():
         classifications[session_id] = classify_session(session)
@@ -53,14 +47,14 @@ def process_sessions() -> int:
     print(f"      High risk: {high_risk}")
 
     # Step 3: Generate dossiers
-    print("\n[3/5] Generating dossiers...")
+    print("\n[3/4] Generating dossiers...")
     for session_id, session in sessions.items():
         classification = classifications[session_id]
         generate(session, classification)
     print(f"      Generated {len(sessions)} dossiers")
 
     # Step 4: Initialize deception & adapt per-session
-    print("\n[4/5] Running deception adaptations...")
+    print("\n[4/4] Running deception adaptations...")
     init_deception()
     adaptations = 0
     for session_id, session in sessions.items():
@@ -70,8 +64,8 @@ def process_sessions() -> int:
             adaptations += len(actions)
     print(f"      Applied {adaptations} per-session adaptations")
 
-    # Step 5: Adapt environment based on history
-    print("\n[5/5] Adapting environment from attack history...")
+    # Adapt environment based on history
+    print("\n      Adapting environment from attack history...")
     env_adaptations = adapt_environment()
     adaptation_report = generate_adaptation_report()
     print(f"      Applied {len(env_adaptations)} environment adaptations")
@@ -96,20 +90,15 @@ def main():
     # Process existing logs and adapt environment
     process_sessions()
 
-    # Start background log sync
-    watch_and_sync(interval=30)
-
     # Start Flask app
-    print("[*] Starting MORPH Web UI...")
+    print("\n[*] Starting MORPH Web UI...")
     print("[*] Dashboard: http://localhost:5000")
-    print("[*] NOTE: Run reactor_wsl.py in WSL for real-time deception")
     print("[*] Press Ctrl+C to stop\n")
 
     try:
         app.run(debug=False, host="0.0.0.0", port=5000)
     except KeyboardInterrupt:
         print("\n[*] Shutting down MORPH...")
-        stop_sync()
         sys.exit(0)
 
 
