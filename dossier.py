@@ -34,13 +34,18 @@ def _prepare_session_data(session: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def generate(session: dict[str, Any], classification: dict[str, Any]) -> dict[str, Any]:
+def generate(
+    session: dict[str, Any],
+    classification: dict[str, Any],
+    adaptation_report: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     Generate a dossier for a session and save it to disk.
 
     Args:
         session: Session dict from the parser
         classification: Classification dict from the classifier
+        adaptation_report: Optional adaptation report from adaptor module
 
     Returns:
         The generated dossier dict
@@ -55,6 +60,11 @@ def generate(session: dict[str, Any], classification: dict[str, Any]) -> dict[st
         "risk": classification.get("risk"),
         "matched_rules": classification.get("matched_rules", []),
     }
+    
+    # Include adaptation report if provided
+    if adaptation_report:
+        dossier["environment_adaptations"] = adaptation_report
+    
     dossier["generated_at"] = datetime.utcnow().isoformat() + "Z"
 
     # Ensure dossiers directory exists
