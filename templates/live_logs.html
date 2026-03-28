@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Live Logs - MORPH{% endblock %}
+
+{% block content %}
+<h1>
+    <span class="refresh-indicator"></span>
+    Live Deception Logs
+</h1>
+
+<p style="color: #8b949e; margin-bottom: 1rem;">
+    Auto-refreshing every 3 seconds. Showing last 20 log entries.
+</p>
+
+<div class="card">
+    <div id="log-container" 
+         class="log-container"
+         hx-get="/api/logs"
+         hx-trigger="load, every 3s"
+         hx-swap="innerHTML">
+        <div class="log-line">Loading logs...</div>
+    </div>
+</div>
+{% endblock %}

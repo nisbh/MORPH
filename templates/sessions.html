@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Sessions - MORPH{% endblock %}
+
+{% block content %}
+<h1>All Sessions</h1>
+
+<div class="card">
+    {% if sessions %}
+    <table>
+        <thead>
+            <tr>
+                <th>Session ID</th>
+                <th>Source IP</th>
+                <th>Duration</th>
+                <th>Commands</th>
+                <th>Type</th>
+                <th>Intent</th>
+                <th>Risk</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in sessions %}
+            {% set s = item.session %}
+            {% set c = item.classification %}
+            <tr>
+                <td>
+                    <a href="/dossier/{{ s.session_id }}" class="link">
+                        {{ s.session_id[:20] }}{% if s.session_id|length > 20 %}...{% endif %}
+                    </a>
+                </td>
+                <td>{{ s.src_ip or 'Unknown' }}</td>
+                <td>{{ "%.1f"|format(s.duration_seconds) }}s</td>
+                <td>{{ s.commands|length }}</td>
+                <td><span class="badge badge-{{ c.type }}">{{ c.type }}</span></td>
+                <td><span class="badge badge-{{ c.intent }}">{{ c.intent }}</span></td>
+                <td><span class="badge badge-{{ c.risk }}">{{ c.risk }}</span></td>
+                <td><a href="/dossier/{{ s.session_id }}" class="link">View</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>No sessions found.</p>
+        <p>Ensure the Cowrie log file exists at: var/log/cowrie/cowrie.json</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

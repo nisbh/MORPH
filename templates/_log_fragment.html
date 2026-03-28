@@ -1,0 +1,6 @@
+{% for line in lines %}
+<div class="log-line">{{ line.strip() }}</div>
+{% endfor %}
+{% if not lines %}
+<div class="log-line" style="color: #8b949e;">No log entries yet.</div>
+{% endif %}

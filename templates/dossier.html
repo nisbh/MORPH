@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Dossier: {{ dossier.session_id }} - MORPH{% endblock %}
+
+{% block content %}
+<h1>Session Dossier</h1>
+
+<div class="section">
+    <div class="card">
+        <h2>Session Information</h2>
+        <div class="detail-grid">
+            <span class="detail-label">Session ID:</span>
+            <span>{{ dossier.session_id }}</span>
+            
+            <span class="detail-label">Source IP:</span>
+            <span>{{ dossier.src_ip or 'Unknown' }}</span>
+            
+            <span class="detail-label">Start Time:</span>
+            <span>{{ dossier.start_time or 'Unknown' }}</span>
+            
+            <span class="detail-label">End Time:</span>
+            <span>{{ dossier.end_time or 'Unknown' }}</span>
+            
+            <span class="detail-label">Duration:</span>
+            <span>{{ "%.1f"|format(dossier.duration_seconds) }} seconds</span>
+            
+            <span class="detail-label">Generated:</span>
+            <span>{{ dossier.generated_at }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="section">
+    <div class="card">
+        <h2>Classification</h2>
+        <div class="detail-grid">
+            <span class="detail-label">Type:</span>
+            <span><span class="badge badge-{{ dossier.classification.type }}">{{ dossier.classification.type }}</span></span>
+            
+            <span class="detail-label">Intent:</span>
+            <span><span class="badge badge-{{ dossier.classification.intent }}">{{ dossier.classification.intent }}</span></span>
+            
+            <span class="detail-label">Risk Level:</span>
+            <span><span class="badge badge-{{ dossier.classification.risk }}">{{ dossier.classification.risk }}</span></span>
+        </div>
+        
+        {% if dossier.classification.matched_rules %}
+        <h2 style="margin-top: 1.5rem;">Matched Rules</h2>
+        <ul class="command-list">
+            {% for rule in dossier.classification.matched_rules %}
+            <li style="color: #f0883e;">{{ rule }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+
+<div class="section">
+    <div class="card">
+        <h2>Login Attempts ({{ dossier.login_attempts|length }})</h2>
+        {% if dossier.login_attempts %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Password</th>
+                    <th>Success</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for attempt in dossier.login_attempts %}
+                <tr>
+                    <td>{{ attempt.username or '-' }}</td>
+                    <td><code>{{ attempt.password or '-' }}</code></td>
+                    <td>
+                        {% if attempt.success %}
+                        <span style="color: #238636;">✓ Yes</span>
+                        {% else %}
+                        <span style="color: #da3633;">✗ No</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #8b949e;">No login attempts recorded.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="section">
+    <div class="card">
+        <h2>Commands Executed ({{ dossier.commands|length }})</h2>
+        {% if dossier.commands %}
+        <ul class="command-list">
+            {% for cmd in dossier.commands %}
+            <li>{{ cmd }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color: #8b949e;">No commands executed.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="section">
+    <div class="card">
+        <h2>Downloads ({{ dossier.downloads|length }})</h2>
+        {% if dossier.downloads %}
+        <ul class="command-list">
+            {% for url in dossier.downloads %}
+            <li style="color: #f85149;">{{ url }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color: #8b949e;">No download attempts.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div style="margin-top: 2rem;">
+    <a href="/sessions" class="link">← Back to Sessions</a>
+</div>
+{% endblock %}

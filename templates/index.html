@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - MORPH{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="card-grid">
+    <div class="card stat-card">
+        <div class="stat-value">{{ summary.total }}</div>
+        <div class="stat-label">Total Sessions</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ summary.by_type.bot }}</div>
+        <div class="stat-label">Bots Detected</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ summary.by_type.human }}</div>
+        <div class="stat-label">Human Sessions</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value" style="color: #da3633;">{{ summary.by_risk.high }}</div>
+        <div class="stat-label">High Risk</div>
+    </div>
+</div>
+
+<div class="card-grid">
+    <div class="card stat-card">
+        <div class="stat-value">{{ summary.unique_ips or 0 }}</div>
+        <div class="stat-label">Unique IPs</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ summary.total_commands or 0 }}</div>
+        <div class="stat-label">Commands Logged</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ summary.total_downloads or 0 }}</div>
+        <div class="stat-label">Download Attempts</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ summary.by_risk.medium }}</div>
+        <div class="stat-label">Medium Risk</div>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Intent Distribution</h2>
+    <div class="card-grid">
+        <div class="card stat-card">
+            <div class="stat-value" style="color: #388bfd;">{{ summary.by_intent.recon }}</div>
+            <div class="stat-label">Reconnaissance</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value" style="color: #f85149;">{{ summary.by_intent.exploit }}</div>
+            <div class="stat-label">Exploitation</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value" style="color: #a371f7;">{{ summary.by_intent.persistence }}</div>
+            <div class="stat-label">Persistence</div>
+        </div>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Recent Dossiers</h2>
+    <div class="card">
+        {% if recent %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Session ID</th>
+                    <th>Source IP</th>
+                    <th>Type</th>
+                    <th>Intent</th>
+                    <th>Risk</th>
+                    <th>Generated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in recent %}
+                <tr>
+                    <td><a href="/dossier/{{ d.session_id }}" class="link">{{ d.session_id[:16] }}...</a></td>
+                    <td>{{ d.src_ip or 'Unknown' }}</td>
+                    <td><span class="badge badge-{{ d.classification.type }}">{{ d.classification.type }}</span></td>
+                    <td><span class="badge badge-{{ d.classification.intent }}">{{ d.classification.intent }}</span></td>
+                    <td><span class="badge badge-{{ d.classification.risk }}">{{ d.classification.risk }}</span></td>
+                    <td>{{ d.generated_at[:19] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No dossiers generated yet.</p>
+            <p>Parse some honeypot logs to get started.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
