@@ -49,4 +49,5 @@ htmlcov/
 
 
 adaptor.log
+reactor.log
 Documentation/
