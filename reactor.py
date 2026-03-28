@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
-MORPH - Reactive Deception Layer (Windows Side)
+MORPH - Reactive Deception Layer
 
 Provides reaction logic for planting fake files into Cowrie's honeyfs.
 This module does NOT watch files - it exposes process_event() to be called
 by external log processors.
-
-For real-time monitoring, run reactor_wsl.py inside WSL.
 """
 
 import random
@@ -15,8 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Any
 
-# Paths (Windows accessing WSL filesystem)
-HONEYFS_ROOT = r"\\wsl$\Ubuntu\home\cowrie\cowrie\honeyfs"
+# Paths (native Linux paths)
+HONEYFS_ROOT = "/home/nb/cowrie/honeyfs"
+FS_PICKLE = "/home/nb/cowrie/src/cowrie/data/fs.pickle"
+FSCTL = "/home/nb/cowrie/cowrie-env/bin/fsctl"
+PID_FILE = "/home/nb/cowrie/twistd.pid"
 REACTOR_LOG = "morph/reactor.log"
 
 
@@ -254,13 +255,12 @@ def process_event(event: dict[str, Any]) -> None:
 
 
 if __name__ == "__main__":
-    print("MORPH Reactor (Windows Side)")
+    print("MORPH Reactor")
     print("=" * 60)
     print(f"Honeyfs root: {HONEYFS_ROOT}")
     print(f"Log file: {REACTOR_LOG}")
     print()
     print("This module provides process_event() for external callers.")
-    print("For real-time monitoring, run reactor_wsl.py inside WSL.")
     print()
     
     # Test with a sample event
