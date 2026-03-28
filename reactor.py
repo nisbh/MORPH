@@ -10,11 +10,8 @@ Usage:
 """
 
 import json
-import os
 import random
-import signal
 import string
-import subprocess
 import threading
 import time
 import traceback
@@ -25,9 +22,6 @@ from typing import Callable, Any
 # Paths
 COWRIE_LOG = "/home/nb/cowrie/var/log/cowrie/cowrie.json"
 HONEYFS_ROOT = "/home/nb/cowrie/honeyfs"
-FS_PICKLE = "/home/nb/cowrie/src/cowrie/data/fs.pickle"
-FSCTL = "/home/nb/cowrie/cowrie-env/bin/fsctl"
-PID_FILE = "/home/nb/cowrie/twistd.pid"
 REACTOR_LOG = Path(__file__).parent / "reactor.log"
 
 # Polling interval in seconds
@@ -36,14 +30,6 @@ POLL_INTERVAL = 1.0
 # Track file position for tail-like behavior
 _file_position = 0
 _position_lock = threading.Lock()
-
-# Batch fsctl commands
-_pending_fs_paths: list[str] = []
-_fs_paths_lock = threading.Lock()
-
-# Track sessions that had reactions (need SIGHUP on close)
-_sessions_with_reactions: set[str] = set()
-_sessions_lock = threading.Lock()
 
 # Control flag for the polling thread
 _running = False
@@ -61,135 +47,27 @@ def _log(message: str) -> None:
     except Exception as e:
         print(f"ERROR writing to log: {e}")
     
-    # Also print to console
     print(log_entry.strip())
 
 
-def _reload_cowrie() -> bool:
-    """Send SIGHUP to Cowrie to reload fs.pickle."""
-    try:
-        pid_path = Path(PID_FILE)
-        if not pid_path.exists():
-            _log(f"PID file not found: {PID_FILE}")
-            return False
-        
-        pid = int(pid_path.read_text().strip())
-        os.kill(pid, signal.SIGHUP)
-        _log(f"Sent SIGHUP to Cowrie (PID {pid}) - fs.pickle reloaded")
-        return True
-        
-    except ValueError as e:
-        _log(f"Invalid PID in file: {e}")
-        return False
-    except ProcessLookupError:
-        _log("Cowrie process not found")
-        return False
-    except PermissionError:
-        _log("Permission denied sending SIGHUP")
-        return False
-    except Exception as e:
-        _log(f"SIGHUP failed: {e}\n{traceback.format_exc()}")
-        return False
-
-
-def _mark_session_for_reload(session_id: str) -> None:
-    """Mark a session as having reactions that need SIGHUP on close."""
-    with _sessions_lock:
-        _sessions_with_reactions.add(session_id)
-        _log(f"[{session_id}] Marked for SIGHUP on session close")
-
-
-def _handle_session_closed(session_id: str) -> None:
-    """Handle session close - send SIGHUP if this session had reactions."""
-    with _sessions_lock:
-        if session_id in _sessions_with_reactions:
-            _sessions_with_reactions.discard(session_id)
-            _log(f"[{session_id}] Session closed - sending SIGHUP")
-            _reload_cowrie()
-        else:
-            _log(f"[{session_id}] Session closed - no reactions, skipping SIGHUP")
-
-
-def _register_in_pickle(relative_path: str, is_directory: bool = False) -> None:
-    """Queue a path to be registered in Cowrie's fs.pickle."""
-    abs_path = "/" + relative_path.lstrip("/")
-    
-    with _fs_paths_lock:
-        # Add mkdir commands for parent directories
-        parts = Path(abs_path).parts
-        for i in range(2, len(parts)):
-            dir_path = "/".join(parts[:i])
-            if dir_path not in _pending_fs_paths:
-                _pending_fs_paths.append(f"mkdir {dir_path}")
-        
-        # Add the file/directory itself
-        cmd = f"mkdir {abs_path}" if is_directory else f"touch {abs_path}"
-        if cmd not in _pending_fs_paths:
-            _pending_fs_paths.append(cmd)
-
-
-def _flush_fs_commands() -> bool:
-    """Execute all pending fsctl commands to update fs.pickle."""
-    with _fs_paths_lock:
-        if not _pending_fs_paths:
-            return True
-        
-        commands = _pending_fs_paths.copy()
-        _pending_fs_paths.clear()
-    
-    # Build fsctl input
-    fsctl_input = "\n".join(commands) + "\nexit\n"
-    _log(f"Running fsctl with {len(commands)} commands")
-    
-    try:
-        result = subprocess.run(
-            [FSCTL, FS_PICKLE],
-            input=fsctl_input,
-            text=True,
-            capture_output=True,
-            timeout=30
-        )
-        
-        if result.returncode != 0:
-            _log(f"fsctl failed: {result.stderr}")
-            return False
-        
-        _log("Pickle updated - changes visible in next session")
-        return True
-        
-    except FileNotFoundError:
-        _log(f"fsctl not found at {FSCTL}")
-        return False
-    except subprocess.TimeoutExpired:
-        _log("fsctl timed out")
-        return False
-    except Exception as e:
-        _log(f"fsctl error: {e}")
-        return False
-
-
 def _write_honeyfs_file(relative_path: str, content: str) -> bool:
-    """Write a file into honeyfs and register in fs.pickle."""
+    """Write a file into honeyfs."""
     full_path = Path(HONEYFS_ROOT) / relative_path
-    _log(f"Attempting to write: {full_path}")
     
     if full_path.exists():
         _log(f"File already exists, skipping: {relative_path}")
         return False
     
     try:
-        _log(f"Creating parent dirs: {full_path.parent}")
         full_path.parent.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         _log(f"ERROR creating parent dirs for {relative_path}: {e}\n{traceback.format_exc()}")
         return False
     
     try:
-        _log(f"Writing content to: {full_path}")
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
-        _log(f"SUCCESS created: {relative_path} ({len(content)} bytes)")
-        _register_in_pickle(relative_path)
+        _log(f"Created: {relative_path} ({len(content)} bytes)")
         return True
     except Exception as e:
         _log(f"ERROR writing {relative_path}: {e}\n{traceback.format_exc()}")
@@ -197,26 +75,22 @@ def _write_honeyfs_file(relative_path: str, content: str) -> bool:
 
 
 def _create_empty_file(relative_path: str) -> bool:
-    """Create an empty file in honeyfs and register in fs.pickle."""
+    """Create an empty file in honeyfs."""
     full_path = Path(HONEYFS_ROOT) / relative_path
-    _log(f"Attempting to create empty file: {full_path}")
     
     if full_path.exists():
         _log(f"File already exists, skipping: {relative_path}")
         return False
     
     try:
-        _log(f"Creating parent dirs: {full_path.parent}")
         full_path.parent.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         _log(f"ERROR creating parent dirs for {relative_path}: {e}\n{traceback.format_exc()}")
         return False
     
     try:
-        _log(f"Touching file: {full_path}")
         full_path.touch()
-        _log(f"SUCCESS created (empty): {relative_path}")
-        _register_in_pickle(relative_path)
+        _log(f"Created (empty): {relative_path}")
         return True
     except Exception as e:
         _log(f"ERROR creating {relative_path}: {e}\n{traceback.format_exc()}")
@@ -334,16 +208,12 @@ def react_to_www(cmd: str, session_id: str) -> None:
     _log(f"[{session_id}] Triggered: www exploration ({cmd})")
     _write_honeyfs_file("var/www/html/config.php", FAKE_CONFIG_PHP)
     _write_honeyfs_file("var/www/html/.git/config", FAKE_GIT_CONFIG)
-    _flush_fs_commands()
-    _mark_session_for_reload(session_id)
 
 
 def react_to_process_list(cmd: str, session_id: str) -> None:
     """React to process listing commands."""
     _log(f"[{session_id}] Triggered: process listing ({cmd})")
     _write_honeyfs_file("tmp/.monitor", FAKE_MONITOR_SCRIPT)
-    _flush_fs_commands()
-    _mark_session_for_reload(session_id)
 
 
 def react_to_passwd_access(cmd: str, session_id: str) -> None:
@@ -351,8 +221,6 @@ def react_to_passwd_access(cmd: str, session_id: str) -> None:
     _log(f"[{session_id}] Triggered: passwd/shadow access ({cmd})")
     _write_honeyfs_file("home/deploy/.ssh/authorized_keys", FAKE_SSH_KEY)
     _write_honeyfs_file("home/deploy/.bash_history", FAKE_BASH_HISTORY)
-    _flush_fs_commands()
-    _mark_session_for_reload(session_id)
 
 
 def react_to_file_search(cmd: str, session_id: str) -> None:
@@ -360,8 +228,6 @@ def react_to_file_search(cmd: str, session_id: str) -> None:
     _log(f"[{session_id}] Triggered: file search ({cmd})")
     _create_empty_file("opt/backup/db_backup_2024.sql.gz")
     _write_honeyfs_file("opt/scripts/backup.sh", FAKE_BACKUP_SCRIPT)
-    _flush_fs_commands()
-    _mark_session_for_reload(session_id)
 
 
 def react_to_download(cmd: str, session_id: str) -> None:
@@ -373,8 +239,6 @@ def react_to_download(cmd: str, session_id: str) -> None:
         date=datetime.now().strftime("%Y-%m-%d %H:%M")
     )
     _write_honeyfs_file(f"tmp/{fake_name}", fake_content)
-    _flush_fs_commands()
-    _mark_session_for_reload(session_id)
 
 
 # === Reaction Rules ===
@@ -402,15 +266,8 @@ def check_reactions(command: str, session_id: str) -> None:
 def process_event(event: dict[str, Any]) -> None:
     """Process a single Cowrie log event and trigger reactions."""
     session_id = event.get("session", "unknown")
-    event_id = event.get("eventid", "")
     command = event.get("input", "")
     
-    # Check for session closed event
-    if event_id == "cowrie.session.closed":
-        _handle_session_closed(session_id)
-        return
-    
-    # Check for command reactions
     if command:
         check_reactions(command, session_id)
 
@@ -479,11 +336,7 @@ def start_reactor() -> threading.Thread:
     _log("MORPH Reactor starting")
     _log(f"Watching: {COWRIE_LOG}")
     _log(f"Honeyfs: {HONEYFS_ROOT}")
-    _log(f"fsctl: {FSCTL}")
-    _log(f"fs.pickle: {FS_PICKLE}")
-    _log(f"PID file: {PID_FILE}")
     _log(f"Poll interval: {POLL_INTERVAL}s")
-    _log("SIGHUP will be sent on session close (not during)")
     _log("=" * 60)
     
     # Ensure honeyfs directory exists
