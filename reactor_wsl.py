@@ -32,7 +32,7 @@ HONEYFS_ROOT = "/home/cowrie/cowrie/honeyfs"
 REACTOR_LOG = "/home/nisar/morph/reactor.log"
 
 # Cowrie fs.pickle paths
-FS_PICKLE = "/home/cowrie/cowrie/share/cowrie/fs.pickle"
+FS_PICKLE = "/home/cowrie/cowrie/src/cowrie/data/fs.pickle"
 FSCTL_PATH = "/home/cowrie/cowrie/cowrie-env/bin/fsctl"
 COWRIE_PYTHON = "/home/cowrie/cowrie/cowrie-env/bin/python3"
 COWRIE_PID_FILE = "/home/cowrie/cowrie/var/run/cowrie.pid"
@@ -62,6 +62,8 @@ def _register_in_pickle(relative_path: str, is_directory: bool = False) -> None:
     """Queue a path to be registered in Cowrie's fs.pickle."""
     # Convert relative path to absolute path as seen in fake filesystem
     abs_path = "/" + relative_path.lstrip("/")
+    
+    _log(f"Updating pickle for: {abs_path}")
     
     with _fs_commands_lock:
         # Add mkdir commands for parent directories
@@ -93,6 +95,7 @@ def _flush_fs_commands() -> bool:
     
     # Build fsctl input
     fsctl_input = "\n".join(commands) + "\nexit\n"
+    _log(f"Running fsctl with commands: {commands}")
     
     try:
         result = subprocess.run(
@@ -103,27 +106,33 @@ def _flush_fs_commands() -> bool:
             timeout=30
         )
         
+        # Log full output
+        if result.stdout.strip():
+            _log(f"fsctl stdout: {result.stdout.strip()}")
+        if result.stderr.strip():
+            _log(f"fsctl stderr: {result.stderr.strip()}")
+        
         if result.returncode != 0:
-            _log(f"fsctl error: {result.stderr}")
+            _log(f"Pickle update failed: return code {result.returncode}")
             return False
         
-        _log(f"Registered {len(commands)} paths in fs.pickle")
+        _log(f"Pickle updated successfully ({len(commands)} paths)")
         
         # Reload Cowrie to pick up changes
         _reload_cowrie()
         return True
         
     except subprocess.TimeoutExpired:
-        _log("fsctl timed out")
+        _log("Pickle update failed: fsctl timed out")
         return False
     except FileNotFoundError:
-        _log(f"fsctl not found at {FSCTL_PATH}")
+        _log(f"Pickle update failed: fsctl not found at {FSCTL_PATH}")
         return False
     except PermissionError as e:
-        _log(f"Permission error running fsctl: {e}")
+        _log(f"Pickle update failed: permission error - {e}")
         return False
     except Exception as e:
-        _log(f"Error running fsctl: {e}")
+        _log(f"Pickle update failed: {e}")
         return False
 
 
@@ -132,25 +141,26 @@ def _reload_cowrie() -> bool:
     try:
         pid_path = Path(COWRIE_PID_FILE)
         if not pid_path.exists():
-            _log(f"Cowrie PID file not found: {COWRIE_PID_FILE}")
+            _log(f"SIGHUP failed: PID file not found at {COWRIE_PID_FILE}")
             return False
         
         pid = int(pid_path.read_text().strip())
+        _log(f"Sending SIGHUP to Cowrie pid {pid}")
         os.kill(pid, signal.SIGHUP)
-        _log(f"Sent SIGHUP to Cowrie (PID {pid})")
+        _log("SIGHUP sent successfully")
         return True
         
     except ValueError as e:
-        _log(f"Invalid PID in file: {e}")
+        _log(f"SIGHUP failed: invalid PID in file - {e}")
         return False
     except ProcessLookupError:
-        _log("Cowrie process not found")
+        _log("SIGHUP failed: Cowrie process not found")
         return False
     except PermissionError as e:
-        _log(f"Permission error sending SIGHUP: {e}")
+        _log(f"SIGHUP failed: permission error - {e}")
         return False
     except Exception as e:
-        _log(f"Error reloading Cowrie: {e}")
+        _log(f"SIGHUP failed: {e}")
         return False
 
 
@@ -158,13 +168,12 @@ def _write_honeyfs_file(relative_path: str, content: str) -> bool:
     """Write a file into the honeyfs directory and register in fs.pickle."""
     full_path = Path(HONEYFS_ROOT) / relative_path
     
-    if full_path.exists():
-        return False
-    
     try:
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content, encoding="utf-8")
-        _log(f"Created: {relative_path}")
+        # Always overwrite with fresh content
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        _log(f"Written: {relative_path}")
         
         # Register in fs.pickle
         _register_in_pickle(relative_path, is_directory=False)
@@ -172,7 +181,7 @@ def _write_honeyfs_file(relative_path: str, content: str) -> bool:
         
         return True
     except IOError as e:
-        _log(f"Error creating {relative_path}: {e}")
+        _log(f"Error writing {relative_path}: {e}")
         return False
 
 
@@ -180,13 +189,12 @@ def _create_empty_file(relative_path: str) -> bool:
     """Create an empty file in honeyfs and register in fs.pickle."""
     full_path = Path(HONEYFS_ROOT) / relative_path
     
-    if full_path.exists():
-        return False
-    
     try:
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.touch()
-        _log(f"Created (empty): {relative_path}")
+        # Always overwrite (truncate if exists)
+        with open(full_path, "w", encoding="utf-8") as f:
+            pass
+        _log(f"Written (empty): {relative_path}")
         
         # Register in fs.pickle
         _register_in_pickle(relative_path, is_directory=False)
@@ -194,7 +202,7 @@ def _create_empty_file(relative_path: str) -> bool:
         
         return True
     except IOError as e:
-        _log(f"Error creating {relative_path}: {e}")
+        _log(f"Error writing {relative_path}: {e}")
         return False
 
 
