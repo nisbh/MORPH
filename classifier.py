@@ -32,11 +32,22 @@ SCANNER_PATTERNS = [
 ]
 
 BOT_COMMAND_SEQUENCES = [
-    ["uname -a", "cat /proc/cpuinfo"],
+    ["uname -a", "cat /etc/passwd", "cat /proc/cpuinfo"],
     ["cd /tmp", "wget"],
     ["cd /tmp", "curl"],
     ["chmod +x", "./"],
 ]
+
+# Known scanner fingerprints - commands appearing together indicate bot
+SCANNER_FINGERPRINTS = [
+    {"whoami", "id", "uname"},
+]
+
+# Common bot passwords
+COMMON_BOT_PASSWORDS = ["admin", "root", "123", "password", "test", "1234", "12345", "123456"]
+
+# Interactive commands that suggest human
+INTERACTIVE_COMMANDS = ["nano", "vim", "vi", "less", "more", "man", "top", "htop"]
 
 
 def _command_contains(commands: list[str], patterns: list[str]) -> list[str]:
@@ -93,67 +104,80 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
 
     # === TYPE CLASSIFICATION (bot vs human) ===
 
-    # Check for rapid commands (bot indicator)
-    if commands and duration > 0:
+    # Rule 1: Rapid command rate (bot indicator)
+    if commands:
         commands_per_second = len(commands) / max(duration, 1)
-        if commands_per_second > 2:
-            bot_score += 3
-            matched_rules.append("rapid_commands")
-        elif commands_per_second > 0.5:
-            bot_score += 1
-            matched_rules.append("moderate_command_rate")
+        if commands_per_second > 1.5:
+            bot_score += 5
+            matched_rules.append(f"rapid_commands:{commands_per_second:.2f}/sec")
 
-    # Check for repeated login attempts (bot indicator)
+    # Rule 2: Repeated identical commands - loop behavior (bot indicator)
+    if commands:
+        from collections import Counter
+        cmd_counts = Counter(commands)
+        repeated_cmds = [cmd for cmd, count in cmd_counts.items() if count >= 3]
+        if repeated_cmds:
+            bot_score += 4
+            matched_rules.append(f"repeated_commands:{repeated_cmds[0]}({cmd_counts[repeated_cmds[0]]}x)")
+
+    # Rule 3: Known scanner command sequences (bot indicator)
+    for seq in BOT_COMMAND_SEQUENCES:
+        if _check_sequence(commands, seq):
+            bot_score += 5
+            matched_rules.append(f"scanner_sequence:{seq[0]}...")
+            break
+
+    # Rule 3b: Scanner fingerprints - commands appearing together
+    cmd_lower_set = {c.lower().split()[0] if c.strip() else "" for c in commands}
+    for fingerprint in SCANNER_FINGERPRINTS:
+        if fingerprint.issubset(cmd_lower_set):
+            bot_score += 4
+            matched_rules.append(f"scanner_fingerprint:{','.join(fingerprint)}")
+            break
+
+    # Rule 4: Login attempt analysis (bot indicator)
     if len(login_attempts) > 5:
-        bot_score += 2
-        matched_rules.append("repeated_login_attempts")
-    if len(login_attempts) > 20:
-        bot_score += 2
-        matched_rules.append("brute_force_login")
+        bot_score += 3
+        matched_rules.append(f"many_login_attempts:{len(login_attempts)}")
 
-    # Check for duplicate credentials (bot indicator)
+    # Rule 4b: Check if all passwords are common bot passwords
     if login_attempts:
-        creds = [(a.get("username"), a.get("password")) for a in login_attempts]
-        unique_creds = set(creds)
-        if len(creds) > len(unique_creds) * 1.5:
-            bot_score += 1
-            matched_rules.append("duplicate_credentials")
+        passwords = [a.get("password", "").lower() for a in login_attempts]
+        bot_passwords = sum(1 for p in passwords if any(common in p for common in COMMON_BOT_PASSWORDS))
+        if bot_passwords == len(passwords) and len(passwords) >= 2:
+            bot_score += 3
+            matched_rules.append("common_bot_passwords")
 
-    # Check for scanner patterns (bot indicator)
+    # Check for scanner patterns in commands
     scanner_matches = _command_contains(commands, SCANNER_PATTERNS)
     if scanner_matches:
         bot_score += 3
         matched_rules.append(f"scanner_patterns:{','.join(scanner_matches)}")
 
-    # Check for bot command sequences
-    for seq in BOT_COMMAND_SEQUENCES:
-        if _check_sequence(commands, seq):
-            bot_score += 2
-            matched_rules.append(f"bot_sequence:{seq[0]}...")
-            break
-
-    # Human indicators
+    # Rule 5: Human indicators (can override bot signals)
+    
+    # 5a: Long duration with varied commands = human
     if duration > 60 and commands:
-        commands_per_minute = len(commands) / (duration / 60)
-        if commands_per_minute < 5:
-            human_score += 2
-            matched_rules.append("slow_interaction")
-
-    # Varied commands suggest human
-    if commands:
         unique_ratio = len(set(commands)) / len(commands)
-        if unique_ratio > 0.8 and len(commands) > 3:
-            human_score += 2
-            matched_rules.append("varied_commands")
-        elif unique_ratio < 0.3 and len(commands) > 5:
-            bot_score += 1
-            matched_rules.append("repetitive_commands")
+        if unique_ratio > 0.5:
+            human_score += 4
+            matched_rules.append("long_varied_session")
+
+    # 5b: Interactive commands suggest human
+    interactive_found = []
+    for cmd in commands:
+        cmd_base = cmd.strip().split()[0] if cmd.strip() else ""
+        if cmd_base in INTERACTIVE_COMMANDS:
+            interactive_found.append(cmd_base)
+    if interactive_found:
+        human_score += 2
+        matched_rules.append(f"interactive_commands:{','.join(set(interactive_found))}")
 
     # Exploratory behavior (cd, ls combinations)
     cd_count = sum(1 for c in commands if c.strip().startswith("cd "))
     ls_count = sum(1 for c in commands if "ls" in c.lower())
     if cd_count > 2 and ls_count > 2:
-        human_score += 1
+        human_score += 2
         matched_rules.append("exploratory_behavior")
 
     # === INTENT CLASSIFICATION ===
@@ -261,6 +285,20 @@ if __name__ == "__main__":
             "login_attempts": [{"username": "root", "password": "123456"}] * 25,
             "downloads": ["http://evil.com/bot"],
             "duration_seconds": 5,
+        },
+        {
+            "name": "Rapid Bot (commands_per_second > 1.5)",
+            "commands": ["whoami", "id", "uname -a", "cat /etc/passwd", "ls /tmp"],
+            "login_attempts": [],
+            "downloads": [],
+            "duration_seconds": 2,  # 5 commands in 2 seconds = 2.5/sec
+        },
+        {
+            "name": "Loop Bot (repeated commands)",
+            "commands": ["ls", "ls", "ls", "ls", "cat /etc/passwd"],
+            "login_attempts": [],
+            "downloads": [],
+            "duration_seconds": 30,
         },
         {
             "name": "Human Explorer",
