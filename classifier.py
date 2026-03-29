@@ -104,6 +104,23 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
 
     # === TYPE CLASSIFICATION (bot vs human) ===
 
+    # Ultra-short session rules (highest priority - catch banner scanners)
+    
+    # Sub-second sessions are always bots
+    if duration < 1:
+        bot_score += 10
+        matched_rules.append("sub_second_session")
+    
+    # Instant disconnect: very short session with no commands
+    if duration < 2 and len(commands) == 0:
+        bot_score += 8
+        matched_rules.append("instant_disconnect")
+    
+    # Rapid login probe: short session with multiple login attempts
+    if duration < 5 and len(login_attempts) > 3:
+        bot_score += 8
+        matched_rules.append(f"rapid_login_probe:{len(login_attempts)}_attempts_in_{duration:.1f}s")
+
     # Rule 1: Rapid command rate (bot indicator)
     if commands:
         commands_per_second = len(commands) / max(duration, 1)
