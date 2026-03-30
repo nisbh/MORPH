@@ -47,7 +47,23 @@ Thumbs.db
 .coverage
 htmlcov/
 
-
+# MORPH logs
+*.log
 adaptor.log
+reactor.log
+morph/reactor.log
+morph/adaptor.log
+morph/deception.log
+
+# Cowrie log copies
+cowrie.json
+
+# Dossiers
+morph/dossiers/
+
+# Population script output
+honeyfs_populated.flag
+
+# Misc
 Documentation/
-MORPH start instructions.txt    
+MORPH start instructions.txt
