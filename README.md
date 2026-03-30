@@ -251,35 +251,9 @@ iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port 2222
 - **No paid APIs** — OSINT enrichment uses free tier only
 - **Cowrie-specific** — designed for Cowrie, not generic honeypots
 
-## Status
-
-**MVP complete.** 
-
-- [x] Log parsing with session aggregation
-- [x] Rule-based classification
-- [x] Static deception assets
-- [x] Real-time reactive deception
-- [x] Cowrie fs.py patch (auto-registers new honeyfs files)
-- [x] Cross-session adaptation
-- [x] Flask UI with live updates
-- [x] Dossier generation
-- [x] OSINT enrichment via ipinfo.io
-- [x] Bot detection (sub-second probe detection)
-- [x] Deployed on DigitalOcean VPS
-
-## Future Work
-
-- [ ] Lightweight embeddings for command similarity
-- [ ] OSINT enrichment expansion (AbuseIPDB, Shodan)
-- [ ] Behavior fingerprinting across sessions
-- [ ] Attack prediction based on early commands
-- [ ] Webhook alerts for high-risk sessions
-- [ ] Multi-honeypot aggregation
 
 ## License
 
 MIT
 
 ---
-
-*MORPH: because static honeypots are too easy to fingerprint.*
