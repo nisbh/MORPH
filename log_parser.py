@@ -6,6 +6,7 @@ Parses Cowrie JSON log files and aggregates events by session.
 """
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -173,7 +174,7 @@ def print_summary(sessions: dict[str, dict[str, Any]]) -> None:
 
 
 # Path to Cowrie log file
-COWRIE_LOG = "/home/nb/cowrie/var/log/cowrie/cowrie.json"
+COWRIE_LOG = os.getenv("COWRIE_LOG", "/home/nb/cowrie/var/log/cowrie/cowrie.json")
 
 if __name__ == "__main__":
     sessions = parse_cowrie_log(COWRIE_LOG)

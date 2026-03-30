@@ -6,11 +6,12 @@ Generates JSON dossier files for honeypot sessions combining parsed data and cla
 """
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-DOSSIERS_DIR = "morph/dossiers"
+DOSSIERS_DIR = os.getenv("DOSSIERS_DIR", "morph/dossiers")
 
 
 def _serialize_datetime(obj: Any) -> Any:

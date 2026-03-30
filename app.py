@@ -5,6 +5,7 @@ MORPH - Flask Web UI
 Dashboard for viewing honeypot sessions, classifications, and live logs.
 """
 
+import os
 from flask import Flask, render_template, abort
 from pathlib import Path
 from collections import deque
@@ -15,7 +16,7 @@ from dossier import generate, load, load_all, summarize_all
 
 app = Flask(__name__)
 
-DECEPTION_LOG = "morph/deception.log"
+DECEPTION_LOG = os.getenv("DECEPTION_LOG", "morph/deception.log")
 
 
 def get_sessions_with_classification() -> list[dict]:

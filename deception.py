@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 
 # Base paths
-FAKE_ASSETS_DIR = "/home/nb/cowrie/fake_assets"
-FAKE_FS_DIR = "/home/nb/cowrie/fake_fs"
-LOG_FILE = "morph/deception.log"
+FAKE_ASSETS_DIR = os.getenv("FAKE_ASSETS_DIR", "/home/nb/cowrie/fake_assets")
+FAKE_FS_DIR = os.getenv("FAKE_FS_DIR", "/home/nb/cowrie/fake_fs")
+LOG_FILE = os.getenv("DECEPTION_LOG", "morph/deception.log")
 
 # Fake content templates
 FAKE_DB_BACKUP = """-- MySQL dump 10.13  Distrib 8.0.32, for Linux (x86_64)

@@ -6,6 +6,7 @@ Learns from previous attack sessions and adapts the honeypot environment
 to increase dwell time and prevent fingerprinting across connections.
 """
 
+import os
 import random
 import string
 from collections import Counter
@@ -16,9 +17,9 @@ from typing import Any
 from dossier import load_all
 
 # Paths
-HONEYFS_ROOT = "/home/nb/cowrie/honeyfs"
-DOSSIERS_PATH = "/home/nb/GitHub Projects/MORPH/dossiers/"
-ADAPTOR_LOG = "morph/adaptor.log"
+HONEYFS_ROOT = os.getenv("HONEYFS_ROOT", "/home/nb/cowrie/honeyfs")
+DOSSIERS_PATH = os.getenv("DOSSIERS_DIR", "morph/dossiers")
+ADAPTOR_LOG = os.getenv("ADAPTOR_LOG", "morph/adaptor.log")
 
 # Track adaptations made in current run
 _current_adaptations: list[dict[str, Any]] = []

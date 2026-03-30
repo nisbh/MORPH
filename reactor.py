@@ -10,6 +10,7 @@ Usage:
 """
 
 import json
+import os
 import random
 import string
 import threading
@@ -20,9 +21,9 @@ from pathlib import Path
 from typing import Callable, Any
 
 # Paths
-COWRIE_LOG = "/home/nb/cowrie/var/log/cowrie/cowrie.json"
-HONEYFS_ROOT = "/home/nb/cowrie/honeyfs"
-REACTOR_LOG = Path(__file__).parent / "reactor.log"
+COWRIE_LOG = os.getenv("COWRIE_LOG", "/home/nb/cowrie/var/log/cowrie/cowrie.json")
+HONEYFS_ROOT = os.getenv("HONEYFS_ROOT", "/home/nb/cowrie/honeyfs")
+REACTOR_LOG = Path(os.getenv("REACTOR_LOG", str(Path(__file__).parent / "reactor.log")))
 
 # Polling interval in seconds
 POLL_INTERVAL = 1.0
