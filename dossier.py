@@ -65,6 +65,9 @@ def generate(
     if adaptation_report:
         dossier["environment_adaptations"] = adaptation_report
     
+    # Initialize empty OSINT field (populated by osint.py later)
+    dossier["osint"] = {}
+    
     dossier["generated_at"] = datetime.utcnow().isoformat() + "Z"
 
     # Ensure dossiers directory exists
