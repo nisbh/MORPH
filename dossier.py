@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-DOSSIERS_DIR = "morph/dossiers"
+DOSSIERS_DIR = Path(__file__).parent / "morph" / "dossiers"
 
 
 def _serialize_datetime(obj: Any) -> Any:
