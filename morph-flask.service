@@ -1,0 +1,18 @@
+[Unit]
+Description=MORPH Flask UI
+After=network-online.target cowrie.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cowrie
+WorkingDirectory=/home/cowrie/morph
+ExecStart=/home/cowrie/cowrie/cowrie-env/bin/python3 -c "import sys, os; os.chdir('/home/cowrie/morph'); sys.path.insert(0, '/home/cowrie/morph'); from app import app; app.run(host='0.0.0.0', port=5000)"
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=morph-flask
+
+[Install]
+WantedBy=multi-user.target
