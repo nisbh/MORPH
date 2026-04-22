@@ -2,145 +2,179 @@
 {% block title %}Dossier: {{ dossier.session_id }} - MORPH{% endblock %}
 
 {% block content %}
-<h1>Session Dossier</h1>
+{% set classification = dossier.classification or {} %}
+{% set osint = dossier.osint or {} %}
 
-<div class="section">
-    <div class="card">
-        <h2>Session Information</h2>
-        <div class="detail-grid">
-            <span class="detail-label">Session ID:</span>
-            <span>{{ dossier.session_id }}</span>
-            
-            <span class="detail-label">Source IP:</span>
-            <span>{{ dossier.src_ip or 'Unknown' }}</span>
-            
-            {% if dossier.osint and dossier.osint.country %}
-            <span class="detail-label">Location:</span>
-            <span>{{ dossier.osint.country_flag or '🌐' }} {{ dossier.osint.city or 'Unknown' }}, {{ dossier.osint.region or '' }} {{ dossier.osint.country or '' }}</span>
-            
-            <span class="detail-label">Organization:</span>
-            <span>{{ dossier.osint.org or 'Unknown' }}</span>
-            
-            <span class="detail-label">Timezone:</span>
-            <span>{{ dossier.osint.timezone or 'Unknown' }}</span>
-            
-            {% if dossier.osint.is_tor or dossier.osint.is_vpn %}
-            <span class="detail-label">Privacy:</span>
+<div class="section-stack">
+    <div class="card-header">
+        <h1>Session Dossier</h1>
+        <a href="/sessions" class="btn ghost">Back to Sessions</a>
+    </div>
+
+    <section class="split-2" aria-label="Session and Classification">
+        <article class="card">
+            <div class="card-header">
+                <h2>Session Information</h2>
+                <span class="subtle">{{ dossier.session_id[:12] }}{% if dossier.session_id|length > 12 %}...{% endif %}</span>
+            </div>
+            <div class="kv-grid">
+                <span class="kv-label">Session ID</span>
+                <span>{{ dossier.session_id }}</span>
+
+                <span class="kv-label">Source IP</span>
+                <span>{{ dossier.src_ip or 'Unknown' }}</span>
+
+                <span class="kv-label">Start Time</span>
+                <span>{{ dossier.start_time or 'Unknown' }}</span>
+
+                <span class="kv-label">End Time</span>
+                <span>{{ dossier.end_time or 'Unknown' }}</span>
+
+                <span class="kv-label">Duration</span>
+                <span>{{ "%.1f"|format(dossier.duration_seconds or 0) }}s</span>
+
+                <span class="kv-label">Generated</span>
+                <span>{{ dossier.generated_at or 'Unknown' }}</span>
+            </div>
+        </article>
+
+        <article class="card">
+            <div class="card-header">
+                <h2>Classification</h2>
+                <span class="subtle">Rule-based assessment</span>
+            </div>
+            <div class="kv-grid" style="margin-bottom: 16px;">
+                <span class="kv-label">Type</span>
+                <span><span class="badge badge-{{ classification.type or 'bot' }}">{{ classification.type or 'unknown' }}</span></span>
+
+                <span class="kv-label">Intent</span>
+                <span><span class="badge badge-{{ classification.intent or 'recon' }}">{{ classification.intent or 'unknown' }}</span></span>
+
+                <span class="kv-label">Risk</span>
+                <span><span class="badge badge-{{ classification.risk or 'low' }}">{{ classification.risk or 'unknown' }}</span></span>
+            </div>
+
+            <h3 style="margin-bottom: 10px;">Matched Rules</h3>
+            {% if classification.matched_rules %}
+            <div class="tag-list">
+                {% for rule in classification.matched_rules %}
+                <span class="code-tag">{{ rule }}</span>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="muted">No matched rules recorded.</p>
+            {% endif %}
+        </article>
+    </section>
+
+    <section class="card" aria-label="OSINT">
+        <div class="card-header">
+            <h2>OSINT</h2>
+            <span class="subtle">Geolocation and enrichment</span>
+        </div>
+
+        {% if osint and (osint.country or osint.is_private) %}
+        <div class="kv-grid">
+            <span class="kv-label">Location</span>
+            {% if osint.is_private %}
+            <span>🌐 Private/Internal Network</span>
+            {% else %}
+            <span>{{ osint.country_flag or '🌐' }} {{ osint.city or 'Unknown' }}, {{ osint.region or '' }} {{ osint.country or '' }}</span>
+            {% endif %}
+
+            <span class="kv-label">Organization</span>
+            <span>{{ osint.org or 'Unknown' }}</span>
+
+            <span class="kv-label">Timezone</span>
+            <span>{{ osint.timezone or 'Unknown' }}</span>
+
+            {% if osint.is_tor or osint.is_vpn %}
+            <span class="kv-label">Privacy Signal</span>
             <span>
-                {% if dossier.osint.is_tor %}<span class="badge" style="background: #da3633;">⚠️ TOR</span>{% endif %}
-                {% if dossier.osint.is_vpn %}<span class="badge" style="background: #f0883e;">⚠️ VPN/Proxy</span>{% endif %}
+                {% if osint.is_tor %}<span class="badge badge-high">TOR</span>{% endif %}
+                {% if osint.is_vpn %}<span class="badge badge-medium">VPN/Proxy</span>{% endif %}
             </span>
             {% endif %}
-            {% elif dossier.osint and dossier.osint.is_private %}
-            <span class="detail-label">Network:</span>
-            <span>🏠 Private/Internal Network</span>
-            {% endif %}
-            
-            <span class="detail-label">Start Time:</span>
-            <span>{{ dossier.start_time or 'Unknown' }}</span>
-            
-            <span class="detail-label">End Time:</span>
-            <span>{{ dossier.end_time or 'Unknown' }}</span>
-            
-            <span class="detail-label">Duration:</span>
-            <span>{{ "%.1f"|format(dossier.duration_seconds) }} seconds</span>
-            
-            <span class="detail-label">Generated:</span>
-            <span>{{ dossier.generated_at }}</span>
         </div>
-    </div>
-</div>
-
-<div class="section">
-    <div class="card">
-        <h2>Classification</h2>
-        <div class="detail-grid">
-            <span class="detail-label">Type:</span>
-            <span><span class="badge badge-{{ dossier.classification.type }}">{{ dossier.classification.type }}</span></span>
-            
-            <span class="detail-label">Intent:</span>
-            <span><span class="badge badge-{{ dossier.classification.intent }}">{{ dossier.classification.intent }}</span></span>
-            
-            <span class="detail-label">Risk Level:</span>
-            <span><span class="badge badge-{{ dossier.classification.risk }}">{{ dossier.classification.risk }}</span></span>
-        </div>
-        
-        {% if dossier.classification.matched_rules %}
-        <h2 style="margin-top: 1.5rem;">Matched Rules</h2>
-        <ul class="command-list">
-            {% for rule in dossier.classification.matched_rules %}
-            <li style="color: #f0883e;">{{ rule }}</li>
-            {% endfor %}
-        </ul>
-        {% endif %}
-    </div>
-</div>
-
-<div class="section">
-    <div class="card">
-        <h2>Login Attempts ({{ dossier.login_attempts|length }})</h2>
-        {% if dossier.login_attempts %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Username</th>
-                    <th>Password</th>
-                    <th>Success</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for attempt in dossier.login_attempts %}
-                <tr>
-                    <td>{{ attempt.username or '-' }}</td>
-                    <td><code>{{ attempt.password or '-' }}</code></td>
-                    <td>
-                        {% if attempt.success %}
-                        <span style="color: #238636;">✓ Yes</span>
-                        {% else %}
-                        <span style="color: #da3633;">✗ No</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
         {% else %}
-        <p style="color: #8b949e;">No login attempts recorded.</p>
+        <p class="muted">No OSINT enrichment data available for this source yet.</p>
         {% endif %}
-    </div>
-</div>
+    </section>
 
-<div class="section">
-    <div class="card">
-        <h2>Commands Executed ({{ dossier.commands|length }})</h2>
+    <section class="card" aria-label="Command Timeline">
+        <div class="card-header">
+            <h2>Command Timeline</h2>
+            <span class="subtle">{{ dossier.commands|length }} command{{ '' if dossier.commands|length == 1 else 's' }}</span>
+        </div>
+
         {% if dossier.commands %}
-        <ul class="command-list">
+        <ol class="timeline">
             {% for cmd in dossier.commands %}
-            <li>{{ cmd }}</li>
+            <li>
+                <span class="timeline-index">{{ "%02d"|format(loop.index) }}</span>
+                <code class="timeline-command">{{ cmd }}</code>
+            </li>
             {% endfor %}
-        </ul>
+        </ol>
         {% else %}
-        <p style="color: #8b949e;">No commands executed.</p>
+        <p class="muted">No commands executed.</p>
         {% endif %}
-    </div>
-</div>
+    </section>
 
-<div class="section">
-    <div class="card">
-        <h2>Downloads ({{ dossier.downloads|length }})</h2>
-        {% if dossier.downloads %}
-        <ul class="command-list">
+    <section class="card" aria-label="Login Attempts">
+        <div class="card-header">
+            <h2>Login Attempts</h2>
+            <span class="subtle">{{ dossier.login_attempts|length }} attempts</span>
+        </div>
+
+        {% if dossier.login_attempts %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Password</th>
+                        <th>Success</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for attempt in dossier.login_attempts %}
+                    <tr>
+                        <td>{{ attempt.username or '-' }}</td>
+                        <td><code class="timeline-command">{{ attempt.password or '-' }}</code></td>
+                        <td>
+                            {% if attempt.success %}
+                            <span class="badge badge-low">Success</span>
+                            {% else %}
+                            <span class="badge badge-high">Failed</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="muted">No login attempts recorded.</p>
+        {% endif %}
+    </section>
+
+    {% if dossier.downloads %}
+    <section class="card" aria-label="Downloads">
+        <div class="card-header">
+            <h2>Downloads</h2>
+            <span class="subtle">{{ dossier.downloads|length }} item{{ '' if dossier.downloads|length == 1 else 's' }}</span>
+        </div>
+
+        <ol class="timeline">
             {% for url in dossier.downloads %}
-            <li style="color: #f85149;">{{ url }}</li>
+            <li>
+                <span class="timeline-index">{{ "%02d"|format(loop.index) }}</span>
+                <code class="timeline-command">{{ url }}</code>
+            </li>
             {% endfor %}
-        </ul>
-        {% else %}
-        <p style="color: #8b949e;">No download attempts.</p>
-        {% endif %}
-    </div>
-</div>
-
-<div style="margin-top: 2rem;">
-    <a href="/sessions" class="link">← Back to Sessions</a>
+        </ol>
+    </section>
+    {% endif %}
 </div>
 {% endblock %}

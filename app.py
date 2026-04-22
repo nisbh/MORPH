@@ -8,6 +8,7 @@ Dashboard for viewing honeypot sessions, classifications, and live logs.
 from flask import Flask, render_template, abort
 from pathlib import Path
 from collections import deque
+from datetime import datetime
 
 from log_parser import parse_cowrie_log, COWRIE_LOG
 from classifier import classify_session
@@ -53,6 +54,46 @@ def read_log_tail(log_path: str, lines: int = 20) -> list[str]:
         return ["Error reading log file"]
 
 
+def classify_log_event(message: str) -> str:
+    """Classify a log message into a UI event category."""
+    lower = message.lower()
+
+    if any(token in lower for token in ["session closed", "disconnect", "stopping", "reactor stopped", "polling loop stopped"]):
+        return "disconnect"
+
+    if any(token in lower for token in ["login", "password", "invalid user", "auth", "accepted publickey", "accepted password"]):
+        return "login"
+
+    if any(token in lower for token in ["triggered", "command", "wget", "curl", "cat /", "ls /", "process listing"]):
+        return "command"
+
+    if any(token in lower for token in ["starting", "started", "connected", "watching"]):
+        return "connect"
+
+    return "connect"
+
+
+def parse_log_line(line: str) -> dict[str, str]:
+    """Split a raw log line into timestamp, message, and event class."""
+    raw = line.strip()
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    message = raw
+
+    if raw.startswith("[") and "]" in raw:
+        end_idx = raw.find("]")
+        timestamp = raw[1:end_idx]
+        message = raw[end_idx + 1:].strip() or "-"
+    elif len(raw) >= 19 and raw[4] == "-" and raw[7] == "-" and raw[13] == ":":
+        timestamp = raw[:19]
+        message = raw[19:].strip() or "-"
+
+    return {
+        "timestamp": timestamp,
+        "message": message,
+        "event_type": classify_log_event(message),
+    }
+
+
 @app.route("/")
 def index():
     """Dashboard with summary statistics."""
@@ -95,7 +136,8 @@ def live_logs():
 def api_logs():
     """Return latest log lines as HTML fragment for HTMX."""
     lines = read_log_tail(DECEPTION_LOG, 20)
-    return render_template("_log_fragment.html", lines=lines)
+    entries = [parse_log_line(line) for line in lines if line.strip()]
+    return render_template("_log_fragment.html", entries=entries)
 
 
 if __name__ == "__main__":

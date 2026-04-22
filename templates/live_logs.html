@@ -2,22 +2,116 @@
 {% block title %}Live Logs - MORPH{% endblock %}
 
 {% block content %}
-<h1>
-    <span class="refresh-indicator"></span>
-    Live Deception Logs
-</h1>
+<style>
+    .log-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
 
-<p style="color: #8b949e; margin-bottom: 1rem;">
-    Auto-refreshing every 3 seconds. Showing last 20 log entries.
-</p>
+    .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+    }
 
-<div class="card">
-    <div id="log-container" 
-         class="log-container"
-         hx-get="/api/logs"
-         hx-trigger="load, every 3s"
-         hx-swap="innerHTML">
-        <div class="log-line">Loading logs...</div>
+    .legend-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .dot-connect {
+        background: var(--success);
+    }
+
+    .dot-login {
+        background: var(--warning);
+    }
+
+    .dot-command {
+        background: var(--danger);
+    }
+
+    .dot-disconnect {
+        background: var(--accent);
+    }
+
+    .refresh-dot {
+        display: inline-flex;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--success);
+        margin-right: 6px;
+        animation: pulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+        0%,
+        100% {
+            opacity: 0.45;
+        }
+        50% {
+            opacity: 1;
+        }
+    }
+</style>
+
+<div class="section-stack">
+    <div class="card-header">
+        <h1>Live Deception Logs</h1>
+        <span class="subtle"><span class="refresh-dot" aria-hidden="true"></span>Auto-refresh every 3s</span>
     </div>
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Event Stream</h2>
+            <span class="subtle">Latest 20 lines</span>
+        </div>
+
+        <div class="log-legend" aria-label="Event Colors">
+            <span class="legend-item"><span class="legend-dot dot-connect"></span>Connect</span>
+            <span class="legend-item"><span class="legend-dot dot-login"></span>Login Attempt</span>
+            <span class="legend-item"><span class="legend-dot dot-command"></span>Command</span>
+            <span class="legend-item"><span class="legend-dot dot-disconnect"></span>Disconnect</span>
+        </div>
+
+        <div
+            id="log-container"
+            class="terminal"
+            hx-get="/api/logs"
+            hx-trigger="load, every 3s"
+            hx-swap="innerHTML"
+        >
+            <div class="log-line">
+                <span class="log-time">--:--:--</span>
+                <span class="log-text muted">Loading logs...</span>
+            </div>
+        </div>
+    </section>
 </div>
+
+<script>
+    (function () {
+        function scrollToBottom() {
+            const container = document.getElementById("log-container");
+            if (!container) {
+                return;
+            }
+            container.scrollTop = container.scrollHeight;
+        }
+
+        document.body.addEventListener("htmx:afterSwap", function (event) {
+            if (event.target && event.target.id === "log-container") {
+                scrollToBottom();
+            }
+        });
+
+        window.addEventListener("load", scrollToBottom);
+    }());
+</script>
 {% endblock %}

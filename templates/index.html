@@ -2,98 +2,194 @@
 {% block title %}Dashboard - MORPH{% endblock %}
 
 {% block content %}
-<h1>Dashboard</h1>
+<style>
+    .intent-bars {
+        display: grid;
+        gap: 14px;
+    }
 
-<div class="card-grid">
-    <div class="card stat-card">
-        <div class="stat-value">{{ summary.total }}</div>
-        <div class="stat-label">Total Sessions</div>
-    </div>
-    <div class="card stat-card">
-        <div class="stat-value">{{ summary.by_type.bot }}</div>
-        <div class="stat-label">Bots Detected</div>
-    </div>
-    <div class="card stat-card">
-        <div class="stat-value">{{ summary.by_type.human }}</div>
-        <div class="stat-label">Human Sessions</div>
-    </div>
-    <div class="card stat-card">
-        <div class="stat-value" style="color: #da3633;">{{ summary.by_risk.high }}</div>
-        <div class="stat-label">High Risk</div>
-    </div>
-</div>
+    .intent-row {
+        display: grid;
+        grid-template-columns: 130px minmax(0, 1fr) 72px;
+        gap: 12px;
+        align-items: center;
+    }
 
-<div class="card-grid">
-    <div class="card stat-card">
-        <div class="stat-value">{{ summary.unique_ips or 0 }}</div>
-        <div class="stat-label">Unique IPs</div>
-    </div>
-    <div class="card stat-card">
-        <div class="stat-value">{{ summary.total_commands or 0 }}</div>
-        <div class="stat-label">Commands Logged</div>
-    </div>
-    <div class="card stat-card">
-        <div class="stat-value">{{ summary.total_downloads or 0 }}</div>
-        <div class="stat-label">Download Attempts</div>
-    </div>
-    <div class="card stat-card">
-        <div class="stat-value">{{ summary.by_risk.medium }}</div>
-        <div class="stat-label">Medium Risk</div>
-    </div>
-</div>
+    .intent-label {
+        color: var(--text-secondary);
+        font-weight: 600;
+    }
 
-<div class="section">
-    <h2>Intent Distribution</h2>
-    <div class="card-grid">
-        <div class="card stat-card">
-            <div class="stat-value" style="color: #388bfd;">{{ summary.by_intent.recon }}</div>
-            <div class="stat-label">Reconnaissance</div>
+    .progress-track {
+        height: 10px;
+        width: 100%;
+        border-radius: 999px;
+        background: #0f141b;
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        overflow: hidden;
+    }
+
+    .progress-fill {
+        height: 100%;
+        border-radius: inherit;
+        transition: width 250ms ease;
+    }
+
+    .fill-recon {
+        background: var(--accent);
+    }
+
+    .fill-exploit {
+        background: var(--danger);
+    }
+
+    .fill-persistence {
+        background: var(--bot);
+    }
+
+    .intent-value {
+        color: var(--text-secondary);
+        font-weight: 600;
+        text-align: right;
+    }
+
+    @media (max-width: 720px) {
+        .intent-row {
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+
+        .intent-value {
+            text-align: left;
+        }
+    }
+</style>
+
+{% set by_type = summary.by_type or {} %}
+{% set by_risk = summary.by_risk or {} %}
+{% set by_intent = summary.by_intent or {} %}
+{% set recon = by_intent.recon or 0 %}
+{% set exploit = by_intent.exploit or 0 %}
+{% set persistence = by_intent.persistence or 0 %}
+{% set intent_total = recon + exploit + persistence %}
+{% set recon_pct = ((recon / intent_total) * 100) if intent_total else 0 %}
+{% set exploit_pct = ((exploit / intent_total) * 100) if intent_total else 0 %}
+{% set persistence_pct = ((persistence / intent_total) * 100) if intent_total else 0 %}
+
+<div class="section-stack">
+    <div class="card-header">
+        <h1>Dashboard</h1>
+        <span class="subtle">Operational snapshot of MORPH dossiers</span>
+    </div>
+
+    <section class="grid-4" aria-label="Primary Metrics">
+        <article class="card metric-card">
+            <p class="metric-label">Total Sessions</p>
+            <p class="metric-value value-accent">{{ summary.total or 0 }}</p>
+        </article>
+        <article class="card metric-card">
+            <p class="metric-label">Bots</p>
+            <p class="metric-value" style="color: var(--bot);">{{ by_type.bot or 0 }}</p>
+        </article>
+        <article class="card metric-card">
+            <p class="metric-label">Humans</p>
+            <p class="metric-value value-success">{{ by_type.human or 0 }}</p>
+        </article>
+        <article class="card metric-card">
+            <p class="metric-label">High Risk</p>
+            <p class="metric-value value-danger">{{ by_risk.high or 0 }}</p>
+        </article>
+    </section>
+
+    <section class="grid-4" aria-label="Secondary Metrics">
+        <article class="card metric-card">
+            <p class="metric-label">Unique IPs</p>
+            <p class="metric-value value-accent">{{ summary.unique_ips or 0 }}</p>
+        </article>
+        <article class="card metric-card">
+            <p class="metric-label">Commands</p>
+            <p class="metric-value value-warning">{{ summary.total_commands or 0 }}</p>
+        </article>
+        <article class="card metric-card">
+            <p class="metric-label">Downloads</p>
+            <p class="metric-value value-warning">{{ summary.total_downloads or 0 }}</p>
+        </article>
+        <article class="card metric-card">
+            <p class="metric-label">Medium Risk</p>
+            <p class="metric-value value-warning">{{ by_risk.medium or 0 }}</p>
+        </article>
+    </section>
+
+    <section class="card" aria-label="Intent Distribution">
+        <div class="card-header">
+            <h2>Intent Distribution</h2>
+            <span class="subtle">{{ intent_total }} classified session{{ '' if intent_total == 1 else 's' }}</span>
         </div>
-        <div class="card stat-card">
-            <div class="stat-value" style="color: #f85149;">{{ summary.by_intent.exploit }}</div>
-            <div class="stat-label">Exploitation</div>
+        <div class="intent-bars">
+            <div class="intent-row">
+                <span class="intent-label">Recon</span>
+                <div class="progress-track" aria-hidden="true">
+                    <div class="progress-fill fill-recon" style="width: {{ '%.2f'|format(recon_pct) }}%;"></div>
+                </div>
+                <span class="intent-value">{{ '%.1f'|format(recon_pct) }}%</span>
+            </div>
+            <div class="intent-row">
+                <span class="intent-label">Exploit</span>
+                <div class="progress-track" aria-hidden="true">
+                    <div class="progress-fill fill-exploit" style="width: {{ '%.2f'|format(exploit_pct) }}%;"></div>
+                </div>
+                <span class="intent-value">{{ '%.1f'|format(exploit_pct) }}%</span>
+            </div>
+            <div class="intent-row">
+                <span class="intent-label">Persistence</span>
+                <div class="progress-track" aria-hidden="true">
+                    <div class="progress-fill fill-persistence" style="width: {{ '%.2f'|format(persistence_pct) }}%;"></div>
+                </div>
+                <span class="intent-value">{{ '%.1f'|format(persistence_pct) }}%</span>
+            </div>
         </div>
-        <div class="card stat-card">
-            <div class="stat-value" style="color: #a371f7;">{{ summary.by_intent.persistence }}</div>
-            <div class="stat-label">Persistence</div>
-        </div>
-    </div>
-</div>
+    </section>
 
-<div class="section">
-    <h2>Recent Dossiers</h2>
-    <div class="card">
+    <section class="card" aria-label="Recent Dossiers">
+        <div class="card-header">
+            <h2>Recent Dossiers</h2>
+            <a href="/sessions" class="link">View all sessions</a>
+        </div>
+
         {% if recent %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Session ID</th>
-                    <th>Source IP</th>
-                    <th>Type</th>
-                    <th>Intent</th>
-                    <th>Risk</th>
-                    <th>Generated</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for d in recent %}
-                <tr>
-                    <td><a href="/dossier/{{ d.session_id }}" class="link">{{ d.session_id[:16] }}...</a></td>
-                    <td>{{ d.src_ip or 'Unknown' }}</td>
-                    <td><span class="badge badge-{{ d.classification.type }}">{{ d.classification.type }}</span></td>
-                    <td><span class="badge badge-{{ d.classification.intent }}">{{ d.classification.intent }}</span></td>
-                    <td><span class="badge badge-{{ d.classification.risk }}">{{ d.classification.risk }}</span></td>
-                    <td>{{ d.generated_at[:19] }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>IP</th>
+                        <th>Duration</th>
+                        <th>Type</th>
+                        <th>Intent</th>
+                        <th>Risk</th>
+                        <th>View</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in recent %}
+                    {% set cls = d.classification or {} %}
+                    <tr>
+                        <td>{{ d.src_ip or 'Unknown' }}</td>
+                        <td>{{ '%.1f'|format(d.duration_seconds or 0) }}s</td>
+                        <td><span class="badge badge-{{ cls.type or 'bot' }}">{{ cls.type or 'unknown' }}</span></td>
+                        <td><span class="badge badge-{{ cls.intent or 'recon' }}">{{ cls.intent or 'unknown' }}</span></td>
+                        <td><span class="badge badge-{{ cls.risk or 'low' }}">{{ cls.risk or 'unknown' }}</span></td>
+                        <td><a href="/dossier/{{ d.session_id }}" class="btn">View</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
         {% else %}
         <div class="empty-state">
             <p>No dossiers generated yet.</p>
-            <p>Parse some honeypot logs to get started.</p>
+            <p>Run the parser and classifier pipeline to populate dashboard data.</p>
         </div>
         {% endif %}
-    </div>
+    </section>
 </div>
 {% endblock %}

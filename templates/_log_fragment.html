@@ -1,6 +1,12 @@
-{% for line in lines %}
-<div class="log-line">{{ line.strip() }}</div>
+{% for entry in entries %}
+<div class="log-line log-{{ entry.event_type }}">
+	<span class="log-time">{{ entry.timestamp }}</span>
+	<span class="log-text">{{ entry.message }}</span>
+</div>
 {% endfor %}
-{% if not lines %}
-<div class="log-line" style="color: #8b949e;">No log entries yet.</div>
+{% if not entries %}
+<div class="log-line">
+	<span class="log-time">--:--:--</span>
+	<span class="log-text muted">No log entries yet.</span>
+</div>
 {% endif %}

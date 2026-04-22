@@ -2,49 +2,113 @@
 {% block title %}Sessions - MORPH{% endblock %}
 
 {% block content %}
-<h1>All Sessions</h1>
-
-<div class="card">
-    {% if sessions %}
-    <table>
-        <thead>
-            <tr>
-                <th>Session ID</th>
-                <th>Source IP</th>
-                <th>Duration</th>
-                <th>Commands</th>
-                <th>Type</th>
-                <th>Intent</th>
-                <th>Risk</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in sessions %}
-            {% set s = item.session %}
-            {% set c = item.classification %}
-            <tr>
-                <td>
-                    <a href="/dossier/{{ s.session_id }}" class="link">
-                        {{ s.session_id[:20] }}{% if s.session_id|length > 20 %}...{% endif %}
-                    </a>
-                </td>
-                <td>{{ s.src_ip or 'Unknown' }}</td>
-                <td>{{ "%.1f"|format(s.duration_seconds) }}s</td>
-                <td>{{ s.commands|length }}</td>
-                <td><span class="badge badge-{{ c.type }}">{{ c.type }}</span></td>
-                <td><span class="badge badge-{{ c.intent }}">{{ c.intent }}</span></td>
-                <td><span class="badge badge-{{ c.risk }}">{{ c.risk }}</span></td>
-                <td><a href="/dossier/{{ s.session_id }}" class="link">View</a></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <p>No sessions found.</p>
-        <p>Ensure the Cowrie log file exists at: var/log/cowrie/cowrie.json</p>
+<div class="section-stack">
+    <div class="card-header">
+        <h1>Sessions</h1>
+        <span class="subtle">Browse and filter captured interactions</span>
     </div>
-    {% endif %}
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Session Table</h2>
+            <span id="session-count" class="subtle"></span>
+        </div>
+
+        {% if sessions %}
+        <div style="margin-bottom: 16px;">
+            <input
+                id="session-search"
+                class="input"
+                type="search"
+                placeholder="Filter by IP, type, or risk"
+                aria-label="Filter sessions"
+            >
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Session ID</th>
+                        <th>IP</th>
+                        <th>Duration</th>
+                        <th>Commands</th>
+                        <th>Type</th>
+                        <th>Intent</th>
+                        <th>Risk</th>
+                        <th>View</th>
+                    </tr>
+                </thead>
+                <tbody id="session-table-body">
+                    {% for item in sessions %}
+                    {% set s = item.session %}
+                    {% set c = item.classification %}
+                    <tr
+                        class="row-clickable session-row"
+                        data-href="/dossier/{{ s.session_id }}"
+                        data-ip="{{ (s.src_ip or 'unknown')|lower }}"
+                        data-type="{{ (c.type or 'unknown')|lower }}"
+                        data-risk="{{ (c.risk or 'unknown')|lower }}"
+                    >
+                        <td>
+                            <a href="/dossier/{{ s.session_id }}" class="link">
+                                {{ s.session_id[:12] }}{% if s.session_id|length > 12 %}...{% endif %}
+                            </a>
+                        </td>
+                        <td>{{ s.src_ip or 'Unknown' }}</td>
+                        <td>{{ "%.1f"|format(s.duration_seconds or 0) }}s</td>
+                        <td>{{ s.commands|length }}</td>
+                        <td><span class="badge badge-{{ c.type or 'bot' }}">{{ c.type or 'unknown' }}</span></td>
+                        <td><span class="badge badge-{{ c.intent or 'recon' }}">{{ c.intent or 'unknown' }}</span></td>
+                        <td><span class="badge badge-{{ c.risk or 'low' }}">{{ c.risk or 'unknown' }}</span></td>
+                        <td><a href="/dossier/{{ s.session_id }}" class="btn ghost">View</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>No sessions found.</p>
+            <p>Ensure the Cowrie log file exists at var/log/cowrie/cowrie.json.</p>
+        </div>
+        {% endif %}
+    </section>
 </div>
+
+{% if sessions %}
+<script>
+    (function () {
+        const searchInput = document.getElementById("session-search");
+        const rows = Array.from(document.querySelectorAll(".session-row"));
+        const countEl = document.getElementById("session-count");
+
+        function updateCount() {
+            const visible = rows.filter((row) => row.style.display !== "none").length;
+            countEl.textContent = `${visible} / ${rows.length} shown`;
+        }
+
+        function applyFilter() {
+            const query = searchInput.value.trim().toLowerCase();
+            rows.forEach((row) => {
+                const haystack = `${row.dataset.ip} ${row.dataset.type} ${row.dataset.risk}`;
+                row.style.display = haystack.includes(query) ? "" : "none";
+            });
+            updateCount();
+        }
+
+        rows.forEach((row) => {
+            row.addEventListener("click", (event) => {
+                if (event.target.closest("a, button, input")) {
+                    return;
+                }
+                window.location.href = row.dataset.href;
+            });
+        });
+
+        searchInput.addEventListener("input", applyFilter);
+        updateCount();
+    }());
+</script>
+{% endif %}
 {% endblock %}
