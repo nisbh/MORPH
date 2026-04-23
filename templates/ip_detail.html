@@ -282,7 +282,7 @@
     <section class="card" aria-label="Commands">
         <div class="card-header">
             <h2>Commands</h2>
-            <span class="subtle">{{ command_frequency|length }} unique commands</span>
+            <span class="subtle">{{ total_unique_commands }} unique commands</span>
         </div>
 
         {% if command_frequency %}
@@ -304,6 +304,9 @@
                 </tbody>
             </table>
         </div>
+        {% if remaining_command_count > 0 %}
+        <p class="muted" style="margin-top: 10px;">and {{ remaining_command_count }} more...</p>
+        {% endif %}
         {% else %}
         <p class="muted">No commands recorded for this IP.</p>
         {% endif %}

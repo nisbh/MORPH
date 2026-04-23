@@ -33,20 +33,20 @@
         line-height: 1.2;
     }
 
-    .sortable {
-        cursor: pointer;
-        user-select: none;
-        white-space: nowrap;
-    }
-
-    .sortable:hover {
-        color: var(--text);
-    }
-
-    .sort-indicator {
-        margin-left: 6px;
+    .sortable-link {
         color: var(--text-secondary);
-        font-size: 0.75rem;
+        text-decoration: none;
+        white-space: nowrap;
+        font-weight: 600;
+    }
+
+    .sortable-link:hover {
+        color: var(--text);
+        text-decoration: none;
+    }
+
+    .sortable-link.active {
+        color: var(--accent);
     }
 
     .country-cell {
@@ -75,6 +75,34 @@
         margin-bottom: 14px;
     }
 
+    .toolbar-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .toolbar-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .pagination-row {
+        margin-top: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .btn.disabled {
+        opacity: 0.55;
+        pointer-events: none;
+    }
+
     @media (max-width: 1080px) {
         .intel-summary-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -87,6 +115,12 @@
         }
 
         .actions-row {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .toolbar-row,
+        .pagination-row {
             flex-direction: column;
             align-items: flex-start;
         }
@@ -103,7 +137,7 @@
 
     <section class="card" aria-label="Summary">
         <div class="actions-row">
-            <div class="subtle">Profile aggregation cache TTL: 60 seconds</div>
+            <div class="subtle">Last updated: {{ intelligence_summary.last_updated }}</div>
             <div style="display: flex; align-items: center; gap: 10px;">
                 <button id="enrich-all" class="btn" type="button">Enrich All IPs</button>
                 <span id="enrich-status" class="subtle">{% if enrichment_in_progress %}Enrichment in progress...{% else %}Idle{% endif %}</span>
@@ -132,34 +166,39 @@
 
     <section class="card" aria-label="IP Profiles">
         {% if profiles %}
+        <div class="toolbar-row">
+            <form method="get" action="/intelligence" class="toolbar-left">
+                <label class="subtle" for="sort">Sort by</label>
+                <select id="sort" name="sort" class="select" style="min-width: 180px;">
+                    <option value="sessions" {% if sort == 'sessions' %}selected{% endif %}>Sessions</option>
+                    <option value="last_seen" {% if sort == 'last_seen' %}selected{% endif %}>Last Seen</option>
+                    <option value="highest_risk" {% if sort == 'highest_risk' %}selected{% endif %}>Highest Risk</option>
+                </select>
+                <button class="btn ghost" type="submit">Apply</button>
+            </form>
+            <span class="subtle">Showing {{ showing_start }}-{{ showing_end }} of {{ total_ips }} IPs</span>
+        </div>
+
         <div class="table-wrap">
             <table id="intel-table">
                 <thead>
                     <tr>
-                        <th class="sortable" data-sort-key="ip" data-sort-type="text">IP <span class="sort-indicator"></span></th>
-                        <th class="sortable" data-sort-key="country" data-sort-type="text">Country <span class="sort-indicator"></span></th>
-                        <th class="sortable" data-sort-key="org" data-sort-type="text">Org/ASN <span class="sort-indicator"></span></th>
-                        <th class="sortable" data-sort-key="sessions" data-sort-type="number">Sessions <span class="sort-indicator"></span></th>
+                        <th><a class="sortable-link" href="{{ url_for('intelligence', page=1, sort='sessions') }}">IP</a></th>
+                        <th>Country</th>
+                        <th>Org/ASN</th>
+                        <th><a class="sortable-link {% if sort == 'sessions' %}active{% endif %}" href="{{ url_for('intelligence', page=1, sort='sessions') }}">Sessions</a></th>
                         <th>Primary Type</th>
                         <th>Top Intent</th>
-                        <th class="sortable" data-sort-key="risk" data-sort-type="risk">Highest Risk <span class="sort-indicator"></span></th>
-                        <th class="sortable" data-sort-key="first" data-sort-type="date">First Seen <span class="sort-indicator"></span></th>
-                        <th class="sortable" data-sort-key="last" data-sort-type="date">Last Seen <span class="sort-indicator"></span></th>
+                        <th><a class="sortable-link {% if sort == 'highest_risk' %}active{% endif %}" href="{{ url_for('intelligence', page=1, sort='highest_risk') }}">Highest Risk</a></th>
+                        <th>First Seen</th>
+                        <th><a class="sortable-link {% if sort == 'last_seen' %}active{% endif %}" href="{{ url_for('intelligence', page=1, sort='last_seen') }}">Last Seen</a></th>
                         <th>View</th>
                     </tr>
                 </thead>
-                <tbody id="intel-table-body">
+                <tbody>
                     {% for profile in profiles %}
                     {% set osint = profile.osint or {} %}
-                    <tr
-                        data-ip="{{ profile.ip }}"
-                        data-country="{{ osint.country or '' }}"
-                        data-org="{{ osint.org or '' }}"
-                        data-sessions="{{ profile.total_sessions or 0 }}"
-                        data-risk="{{ profile.highest_risk or '' }}"
-                        data-first="{{ profile.first_seen or '' }}"
-                        data-last="{{ profile.last_seen or '' }}"
-                    >
+                    <tr>
                         <td>{{ profile.ip }}</td>
                         <td>
                             <span class="country-cell">
@@ -180,6 +219,22 @@
                 </tbody>
             </table>
         </div>
+
+        <div class="pagination-row">
+            {% if has_prev %}
+            <a class="btn ghost" href="{{ url_for('intelligence', page=prev_page, sort=sort) }}">Previous</a>
+            {% else %}
+            <span class="btn ghost disabled">Previous</span>
+            {% endif %}
+
+            <span class="subtle">Page {{ page }} of {{ total_pages }}</span>
+
+            {% if has_next %}
+            <a class="btn ghost" href="{{ url_for('intelligence', page=next_page, sort=sort) }}">Next</a>
+            {% else %}
+            <span class="btn ghost disabled">Next</span>
+            {% endif %}
+        </div>
         {% else %}
         <div class="empty-state">
             <p>No IP profiles available yet.</p>
@@ -191,65 +246,8 @@
 
 <script>
     (function () {
-        const tableBody = document.getElementById("intel-table-body");
-        const headers = Array.from(document.querySelectorAll("th.sortable"));
         const enrichButton = document.getElementById("enrich-all");
         const statusEl = document.getElementById("enrich-status");
-        const riskOrder = { low: 1, medium: 2, high: 3 };
-
-        function parseValue(raw, type) {
-            if (type === "number") {
-                return Number(raw) || 0;
-            }
-            if (type === "date") {
-                const ts = Date.parse(raw || "");
-                return Number.isNaN(ts) ? 0 : ts;
-            }
-            if (type === "risk") {
-                return riskOrder[(raw || "").toLowerCase()] || 0;
-            }
-            return (raw || "").toLowerCase();
-        }
-
-        headers.forEach((header) => {
-            header.addEventListener("click", () => {
-                if (!tableBody) {
-                    return;
-                }
-
-                const key = header.dataset.sortKey;
-                const sortType = header.dataset.sortType;
-                const current = header.dataset.order === "asc" ? "asc" : "desc";
-                const next = current === "asc" ? "desc" : "asc";
-                header.dataset.order = next;
-
-                headers.forEach((other) => {
-                    if (other !== header) {
-                        other.dataset.order = "";
-                    }
-                    const indicator = other.querySelector(".sort-indicator");
-                    if (indicator) {
-                        indicator.textContent = other === header ? (next === "asc" ? "▲" : "▼") : "";
-                    }
-                });
-
-                const rows = Array.from(tableBody.querySelectorAll("tr"));
-                rows.sort((a, b) => {
-                    const aVal = parseValue(a.dataset[key], sortType);
-                    const bVal = parseValue(b.dataset[key], sortType);
-
-                    if (aVal < bVal) {
-                        return next === "asc" ? -1 : 1;
-                    }
-                    if (aVal > bVal) {
-                        return next === "asc" ? 1 : -1;
-                    }
-                    return 0;
-                });
-
-                rows.forEach((row) => tableBody.appendChild(row));
-            });
-        });
 
         if (enrichButton) {
             enrichButton.addEventListener("click", async () => {

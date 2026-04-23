@@ -18,7 +18,7 @@ from typing import Any
 from flask import Flask, abort, jsonify, render_template, request
 
 from dossier import load, load_all
-from ip_profiles import build_ip_profiles, enrich_ip_profiles, load_ip_profiles
+from ip_profiles import PROFILES_PATH, build_ip_profiles, enrich_ip_profiles, load_ip_profiles, save_ip_profiles
 
 app = Flask(__name__)
 
@@ -26,6 +26,8 @@ DECEPTION_LOG = "morph/deception.log"
 CACHE_TTL_SECONDS = 60
 SESSIONS_PER_PAGE = 50
 IP_DETAIL_SESSIONS_PER_PAGE = 20
+INTELLIGENCE_IPS_PER_PAGE = 50
+IP_PROFILES_FILE_FRESH_SECONDS = 300
 
 _summary_cache: dict[str, Any] | None = None
 _cache_time = 0
@@ -44,6 +46,45 @@ _ip_profiles_cache_time = 0
 
 _enrichment_lock = threading.Lock()
 _enrichment_in_progress = False
+
+
+def _format_minutes_ago(epoch_seconds: float | int | None) -> str:
+    """Return a readable relative age string in minutes."""
+    if not epoch_seconds:
+        return "unknown"
+
+    elapsed_seconds = max(0, int(time.time() - float(epoch_seconds)))
+    if elapsed_seconds < 60:
+        return "just now"
+
+    minutes = elapsed_seconds // 60
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+
+    days = hours // 24
+    return f"{days} day{'s' if days != 1 else ''} ago"
+
+
+def _ip_profiles_file_age_seconds() -> float | None:
+    """Return current age of ip_profiles.json in seconds, if it exists."""
+    if not PROFILES_PATH.exists():
+        return None
+    return max(0.0, time.time() - PROFILES_PATH.stat().st_mtime)
+
+
+def get_ip_profiles_last_updated_text() -> str:
+    """Return human-readable last-updated text for intelligence summary UI."""
+    if PROFILES_PATH.exists():
+        return _format_minutes_ago(PROFILES_PATH.stat().st_mtime)
+
+    if _ip_profiles_cache_time:
+        return _format_minutes_ago(_ip_profiles_cache_time)
+
+    return "unknown"
 
 
 def parse_iso_datetime(value: str | None) -> datetime | None:
@@ -296,15 +337,61 @@ def get_cached_ip_profiles(force_refresh: bool = False) -> dict[str, dict[str, A
     global _ip_profiles_cache, _ip_profiles_cache_time
 
     if force_refresh or _ip_profiles_cache is None or _cache_expired(_ip_profiles_cache_time):
-        dossiers = get_cached_dossiers()
-        profiles = build_ip_profiles(dossiers)
-        saved_profiles = load_ip_profiles()
-        _merge_osint_into_profiles(profiles, saved_profiles)
+        file_age = _ip_profiles_file_age_seconds()
+        file_is_fresh = file_age is not None and file_age <= IP_PROFILES_FILE_FRESH_SECONDS
+
+        if not force_refresh and file_is_fresh:
+            profiles = load_ip_profiles()
+        else:
+            dossiers = get_cached_dossiers()
+            profiles = build_ip_profiles(dossiers)
+            saved_profiles = load_ip_profiles()
+            _merge_osint_into_profiles(profiles, saved_profiles)
+            save_ip_profiles(profiles)
 
         _ip_profiles_cache = profiles
         _ip_profiles_cache_time = time.time()
 
     return _ip_profiles_cache or {}
+
+
+def _risk_sort_tuple(profile: dict[str, Any]) -> tuple[int, int, int, int]:
+    """Sort helper for highest-risk ordering in intelligence list."""
+    risk = profile.get("risk_breakdown") or {}
+    return (
+        int(risk.get("high", 0)),
+        int(risk.get("medium", 0)),
+        int(risk.get("low", 0)),
+        int(profile.get("total_sessions", 0)),
+    )
+
+
+def _sort_intelligence_profiles(
+    profiles: list[dict[str, Any]],
+    sort_key: str,
+) -> list[dict[str, Any]]:
+    """Apply requested sort mode for /intelligence list."""
+    if sort_key == "last_seen":
+        return sorted(
+            profiles,
+            key=lambda p: (
+                parse_iso_datetime(p.get("last_seen")) or datetime.fromtimestamp(0, tz=timezone.utc),
+                int(p.get("total_sessions", 0)),
+            ),
+            reverse=True,
+        )
+
+    if sort_key == "highest_risk":
+        return sorted(profiles, key=_risk_sort_tuple, reverse=True)
+
+    return sorted(
+        profiles,
+        key=lambda p: (
+            int(p.get("total_sessions", 0)),
+            parse_iso_datetime(p.get("last_seen")) or datetime.fromtimestamp(0, tz=timezone.utc),
+        ),
+        reverse=True,
+    )
 
 
 def _profile_danger_tuple(profile: dict[str, Any]) -> tuple[int, int, int, int]:
@@ -493,32 +580,54 @@ def sessions():
 @app.route("/intelligence")
 def intelligence():
     """Aggregated attacker IP intelligence profiles."""
+    page = request.args.get("page", default=1, type=int) or 1
+    sort = request.args.get("sort", default="sessions", type=str) or "sessions"
+    if sort not in {"sessions", "last_seen", "highest_risk"}:
+        sort = "sessions"
+
     profiles_map = get_cached_ip_profiles()
-    profiles = sorted(
-        profiles_map.values(),
-        key=lambda p: (int(p.get("total_sessions", 0)), str(p.get("last_seen", ""))),
-        reverse=True,
+    all_profiles = list(profiles_map.values())
+    profiles = _sort_intelligence_profiles(all_profiles, sort)
+
+    page_profiles, total_ips, total_pages, current_page = _paginate_rows(
+        profiles,
+        page,
+        INTELLIGENCE_IPS_PER_PAGE,
     )
 
-    ips_with_osint = sum(1 for profile in profiles if profile.get("osint"))
-    most_active = profiles[0] if profiles else None
-    most_dangerous = max(profiles, key=_profile_danger_tuple) if profiles else None
+    showing_start = 0 if total_ips == 0 else ((current_page - 1) * INTELLIGENCE_IPS_PER_PAGE) + 1
+    showing_end = min(current_page * INTELLIGENCE_IPS_PER_PAGE, total_ips)
+
+    ips_with_osint = sum(1 for profile in all_profiles if profile.get("osint"))
+    most_active = max(all_profiles, key=lambda p: int(p.get("total_sessions", 0))) if all_profiles else None
+    most_dangerous = max(all_profiles, key=_profile_danger_tuple) if all_profiles else None
 
     with _enrichment_lock:
         enriching = _enrichment_in_progress
 
     return render_template(
         "intelligence.html",
-        profiles=profiles,
+        profiles=page_profiles,
         intelligence_summary={
-            "total_unique_ips": len(profiles),
+            "total_unique_ips": total_ips,
             "ips_with_osint": ips_with_osint,
             "most_active_ip": most_active.get("ip") if most_active else "-",
             "most_active_sessions": int(most_active.get("total_sessions", 0)) if most_active else 0,
             "most_dangerous_ip": most_dangerous.get("ip") if most_dangerous else "-",
             "most_dangerous_high": int((most_dangerous.get("risk_breakdown") or {}).get("high", 0)) if most_dangerous else 0,
+            "last_updated": get_ip_profiles_last_updated_text(),
         },
         enrichment_in_progress=enriching,
+        sort=sort,
+        page=current_page,
+        total_pages=total_pages,
+        has_prev=current_page > 1,
+        has_next=current_page < total_pages,
+        prev_page=current_page - 1,
+        next_page=current_page + 1,
+        showing_start=showing_start,
+        showing_end=showing_end,
+        total_ips=total_ips,
     )
 
 
@@ -546,13 +655,17 @@ def intelligence_detail(ip: str):
         (profile.get("command_frequency") or {}).items(),
         key=lambda item: (-int(item[1]), item[0]),
     )
+    top_commands = command_frequency[:30]
+    remaining_command_count = max(0, len(command_frequency) - len(top_commands))
     timeline = _build_ip_timeline(ip_rows)
     timeline_max = max((point["sessions"] for point in timeline), default=1)
 
     return render_template(
         "ip_detail.html",
         profile=profile,
-        command_frequency=command_frequency,
+        command_frequency=top_commands,
+        total_unique_commands=len(command_frequency),
+        remaining_command_count=remaining_command_count,
         timeline=timeline,
         timeline_max=timeline_max,
         sessions=page_rows,

@@ -207,7 +207,7 @@ def _fetch_ipinfo(ip: str) -> dict[str, Any]:
     return parsed
 
 
-def _save_ip_profiles(profiles: dict[str, dict[str, Any]]) -> None:
+def save_ip_profiles(profiles: dict[str, dict[str, Any]]) -> None:
     """Persist profile cache to morph/ip_profiles.json."""
     PROFILES_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(PROFILES_PATH, "w", encoding="utf-8") as f:
@@ -283,5 +283,5 @@ def enrich_ip_profiles(profiles: dict[str, dict[str, Any]]) -> dict[str, dict[st
                 "hostname": "",
             }
 
-    _save_ip_profiles(profiles)
+    save_ip_profiles(profiles)
     return profiles
