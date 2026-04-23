@@ -173,7 +173,7 @@ def print_summary(sessions: dict[str, dict[str, Any]]) -> None:
 
 
 # Path to Cowrie log file
-COWRIE_LOG = "/home/nb/cowrie/var/log/cowrie/cowrie.json"
+COWRIE_LOG = "/home/cowrie/cowrie/var/log/cowrie/cowrie.json"
 
 if __name__ == "__main__":
     sessions = parse_cowrie_log(COWRIE_LOG)
