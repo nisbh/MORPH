@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Callable, Any
 
 # Paths
-COWRIE_LOG = "/home/nb/cowrie/var/log/cowrie/cowrie.json"
-HONEYFS_ROOT = "/home/nb/cowrie/honeyfs"
+COWRIE_LOG = "/home/cowrie/cowrie/var/log/cowrie/cowrie.json"
+HONEYFS_ROOT = "/home/cowrie/cowrie/honeyfs"
 REACTOR_LOG = Path(__file__).parent / "reactor.log"
 
 # Polling interval in seconds

@@ -16,8 +16,8 @@ from typing import Any
 from dossier import load_all
 
 # Paths
-HONEYFS_ROOT = "/home/nb/cowrie/honeyfs"
-DOSSIERS_PATH = "/home/nb/GitHub Projects/MORPH/dossiers/"
+HONEYFS_ROOT = "/home/cowrie/cowrie/honeyfs"
+DOSSIERS_PATH = "/home/cowrie/GitHub Projects/MORPH/dossiers/"
 ADAPTOR_LOG = "morph/adaptor.log"
 
 # Track adaptations made in current run

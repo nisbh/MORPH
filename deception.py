@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 # Base paths
-FAKE_ASSETS_DIR = "/home/nb/cowrie/fake_assets"
-FAKE_FS_DIR = "/home/nb/cowrie/fake_fs"
+FAKE_ASSETS_DIR = "/home/cowrie/cowrie/fake_assets"
+FAKE_FS_DIR = "/home/cowrie/cowrie/fake_fs"
 LOG_FILE = "morph/deception.log"
 
 # Fake content templates
