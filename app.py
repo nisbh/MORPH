@@ -7,8 +7,8 @@ Dashboard for viewing honeypot sessions, classifications, and live logs.
 
 from flask import Flask, render_template, abort
 from pathlib import Path
-from collections import deque
-from datetime import datetime
+from collections import Counter, deque
+from datetime import datetime, timezone
 
 from log_parser import parse_cowrie_log, COWRIE_LOG
 from classifier import classify_session
@@ -17,6 +17,47 @@ from dossier import generate, load, load_all, summarize_all
 app = Flask(__name__)
 
 DECEPTION_LOG = "morph/deception.log"
+
+
+def parse_iso_datetime(value: str | None) -> datetime | None:
+    """Parse ISO datetime strings from dossiers, handling trailing Z."""
+    if not value or not isinstance(value, str):
+        return None
+
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def format_time_ago(timestamp: datetime | None) -> str:
+    """Return a compact relative time string for dashboard activity rows."""
+    if timestamp is None:
+        return "unknown"
+
+    now = datetime.now(timezone.utc)
+    delta_seconds = max(0, int((now - timestamp).total_seconds()))
+
+    if delta_seconds < 60:
+        return "just now"
+    if delta_seconds < 3600:
+        minutes = delta_seconds // 60
+        return f"{minutes}m ago"
+    if delta_seconds < 86400:
+        hours = delta_seconds // 3600
+        return f"{hours}h ago"
+    if delta_seconds < 604800:
+        days = delta_seconds // 86400
+        return f"{days}d ago"
+    return timestamp.strftime("%Y-%m-%d")
 
 
 def get_sessions_with_classification() -> list[dict]:
@@ -99,6 +140,15 @@ def index():
     """Dashboard with summary statistics."""
     summary = summarize_all()
     dossiers = load_all()
+
+    ip_counts = Counter()
+    for dossier in dossiers:
+        ip = dossier.get("src_ip") or "Unknown"
+        ip_counts[ip] += 1
+    top_attacker_ips = [
+        {"ip": ip, "count": count}
+        for ip, count in ip_counts.most_common(5)
+    ]
     
     # Get recent dossiers (last 5)
     recent = sorted(
@@ -106,8 +156,25 @@ def index():
         key=lambda d: d.get("generated_at", ""),
         reverse=True
     )[:5]
+
+    recent_activity = []
+    for dossier in recent:
+        classification = dossier.get("classification") or {}
+        generated_dt = parse_iso_datetime(dossier.get("generated_at"))
+        recent_activity.append({
+            "session_id": dossier.get("session_id", "unknown"),
+            "src_ip": dossier.get("src_ip") or "Unknown",
+            "type": classification.get("type") or "unknown",
+            "time_ago": format_time_ago(generated_dt),
+        })
     
-    return render_template("index.html", summary=summary, recent=recent)
+    return render_template(
+        "index.html",
+        summary=summary,
+        recent=recent,
+        top_attacker_ips=top_attacker_ips,
+        recent_activity=recent_activity,
+    )
 
 
 @app.route("/sessions")
@@ -130,6 +197,13 @@ def dossier_detail(session_id: str):
 def live_logs():
     """Live logs page with auto-refresh."""
     return render_template("live_logs.html")
+
+
+@app.route("/about")
+def about():
+    """Technical summary page for MORPH."""
+    summary = summarize_all()
+    return render_template("about.html", summary=summary)
 
 
 @app.route("/api/logs")

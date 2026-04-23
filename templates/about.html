@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}About - MORPH{% endblock %}
+
+{% block content %}
+<style>
+    .about-grid {
+        display: grid;
+        gap: 16px;
+    }
+
+    .about-copy {
+        color: var(--text);
+        max-width: 110ch;
+    }
+
+    .flow-stack {
+        display: grid;
+        gap: 10px;
+    }
+
+    .flow-line {
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: rgba(13, 17, 23, 0.45);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        color: var(--text);
+        overflow-x: auto;
+    }
+
+    .capability-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .capability-card {
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        border-radius: 10px;
+        background: rgba(13, 17, 23, 0.45);
+        padding: 12px;
+        min-height: 92px;
+        display: flex;
+        align-items: center;
+    }
+
+    .numbers-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .number-card {
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        border-radius: 10px;
+        background: rgba(13, 17, 23, 0.45);
+        padding: 14px;
+        display: grid;
+        gap: 8px;
+    }
+
+    .number-label {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 600;
+    }
+
+    .number-value {
+        color: var(--accent);
+        font-weight: 700;
+        font-size: 1.75rem;
+        line-height: 1;
+    }
+
+    .use-case-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .use-case-card {
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        border-radius: 10px;
+        background: rgba(13, 17, 23, 0.45);
+        padding: 12px;
+    }
+
+    @media (max-width: 1080px) {
+        .capability-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .numbers-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 720px) {
+        .capability-grid,
+        .numbers-grid,
+        .use-case-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+{% set by_type = summary.by_type or {} %}
+{% set by_intent = summary.by_intent or {} %}
+
+<div class="section-stack">
+    <div class="card-header">
+        <h1>About MORPH</h1>
+        <span class="subtle">Technical Overview</span>
+    </div>
+
+    <section class="card about-grid">
+        <h2>What is MORPH</h2>
+        <p class="about-copy">
+            MORPH (Modular Reactive Polymorphic Honeypot) is an adaptive SSH honeypot system built on Cowrie.
+            Unlike static honeypots that are easily fingerprinted, MORPH actively responds to attacker behavior -
+            planting new deception artifacts mid-session and evolving its environment across sessions based on attack history.
+        </p>
+    </section>
+
+    <section class="card about-grid">
+        <h2>How It Works</h2>
+        <div class="flow-stack" aria-label="Architecture Flow">
+            <div class="flow-line">Attacker -> Cowrie SSH -> Log Parser -> Classifier -> Dossier</div>
+            <div class="flow-line">Reactor (real-time) -> honeyfs modification</div>
+            <div class="flow-line">Adaptor (cross-session) -> environment evolution</div>
+        </div>
+    </section>
+
+    <section class="card about-grid">
+        <h2>Key Capabilities</h2>
+        <div class="capability-grid">
+            <div class="capability-card">Real-time deception: files planted based on attacker commands</div>
+            <div class="capability-card">Behavioral classification: bot/human, intent, risk (rule-based)</div>
+            <div class="capability-card">Cross-session memory: environment adapts from attack history</div>
+            <div class="capability-card">Attacker dossiers: structured JSON per session</div>
+            <div class="capability-card">OSINT enrichment: IP geolocation and ASN via ipinfo.io</div>
+            <div class="capability-card">Live dashboard: Flask + HTMX, no JS frameworks</div>
+        </div>
+    </section>
+
+    <section class="card about-grid">
+        <h2>By The Numbers</h2>
+        <div class="numbers-grid">
+            <div class="number-card">
+                <span class="number-label">Sessions Captured</span>
+                <span class="number-value">{{ summary.total or 0 }}</span>
+            </div>
+            <div class="number-card">
+                <span class="number-label">Unique IPs</span>
+                <span class="number-value">{{ summary.unique_ips or 0 }}</span>
+            </div>
+            <div class="number-card">
+                <span class="number-label">Bots Detected</span>
+                <span class="number-value">{{ by_type.bot or 0 }}</span>
+            </div>
+            <div class="number-card">
+                <span class="number-label">Persistence Attempts</span>
+                <span class="number-value">{{ by_intent.persistence or 0 }}</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="card about-grid">
+        <h2>Use Cases</h2>
+        <div class="use-case-grid">
+            <div class="use-case-card">Threat intelligence research</div>
+            <div class="use-case-card">Attacker TTP documentation</div>
+            <div class="use-case-card">Cybersecurity portfolio demonstration</div>
+            <div class="use-case-card">SSH attack pattern analysis</div>
+        </div>
+    </section>
+</div>
+{% endblock %}

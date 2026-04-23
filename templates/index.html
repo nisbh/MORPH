@@ -3,6 +3,23 @@
 
 {% block content %}
 <style>
+    .dashboard-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 3fr) minmax(300px, 1.2fr);
+        gap: 16px;
+        align-items: start;
+    }
+
+    .metrics-stack {
+        display: grid;
+        gap: 16px;
+    }
+
+    .side-panel {
+        display: grid;
+        gap: 16px;
+    }
+
     .intent-bars {
         display: grid;
         gap: 14px;
@@ -53,6 +70,75 @@
         text-align: right;
     }
 
+    .ranked-list {
+        list-style: none;
+        display: grid;
+        gap: 10px;
+    }
+
+    .ranked-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid rgba(48, 54, 61, 0.7);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: rgba(13, 17, 23, 0.45);
+    }
+
+    .ranked-ip {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        color: var(--text);
+    }
+
+    .ranked-count {
+        color: var(--text-secondary);
+    }
+
+    .activity-feed {
+        display: grid;
+        gap: 10px;
+    }
+
+    .activity-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border: 1px solid rgba(48, 54, 61, 0.7);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: rgba(13, 17, 23, 0.45);
+    }
+
+    .activity-left {
+        min-width: 0;
+        display: grid;
+        gap: 6px;
+    }
+
+    .activity-ip {
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: 0.84rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .activity-time {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 1180px) {
+        .dashboard-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+
     @media (max-width: 720px) {
         .intent-row {
             grid-template-columns: 1fr;
@@ -82,42 +168,91 @@
         <span class="subtle">Operational snapshot of MORPH dossiers</span>
     </div>
 
-    <section class="grid-4" aria-label="Primary Metrics">
-        <article class="card metric-card">
-            <p class="metric-label">Total Sessions</p>
-            <p class="metric-value value-accent">{{ summary.total or 0 }}</p>
-        </article>
-        <article class="card metric-card">
-            <p class="metric-label">Bots</p>
-            <p class="metric-value" style="color: var(--bot);">{{ by_type.bot or 0 }}</p>
-        </article>
-        <article class="card metric-card">
-            <p class="metric-label">Humans</p>
-            <p class="metric-value value-success">{{ by_type.human or 0 }}</p>
-        </article>
-        <article class="card metric-card">
-            <p class="metric-label">High Risk</p>
-            <p class="metric-value value-danger">{{ by_risk.high or 0 }}</p>
-        </article>
-    </section>
+    <section class="dashboard-layout" aria-label="Summary Panels">
+        <div class="metrics-stack">
+            <section class="grid-4" aria-label="Primary Metrics">
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">Total Sessions</p>
+                    <p class="metric-value value-accent">{{ summary.total or 0 }}</p>
+                </article>
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">Bots</p>
+                    <p class="metric-value" style="color: var(--bot);">{{ by_type.bot or 0 }}</p>
+                </article>
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">Humans</p>
+                    <p class="metric-value value-success">{{ by_type.human or 0 }}</p>
+                </article>
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">High Risk</p>
+                    <p class="metric-value value-danger">{{ by_risk.high or 0 }}</p>
+                </article>
+            </section>
 
-    <section class="grid-4" aria-label="Secondary Metrics">
-        <article class="card metric-card">
-            <p class="metric-label">Unique IPs</p>
-            <p class="metric-value value-accent">{{ summary.unique_ips or 0 }}</p>
-        </article>
-        <article class="card metric-card">
-            <p class="metric-label">Commands</p>
-            <p class="metric-value value-warning">{{ summary.total_commands or 0 }}</p>
-        </article>
-        <article class="card metric-card">
-            <p class="metric-label">Downloads</p>
-            <p class="metric-value value-warning">{{ summary.total_downloads or 0 }}</p>
-        </article>
-        <article class="card metric-card">
-            <p class="metric-label">Medium Risk</p>
-            <p class="metric-value value-warning">{{ by_risk.medium or 0 }}</p>
-        </article>
+            <section class="grid-4" aria-label="Secondary Metrics">
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">Unique IPs</p>
+                    <p class="metric-value value-accent">{{ summary.unique_ips or 0 }}</p>
+                </article>
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">Commands</p>
+                    <p class="metric-value value-warning">{{ summary.total_commands or 0 }}</p>
+                </article>
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">Downloads</p>
+                    <p class="metric-value value-warning">{{ summary.total_downloads or 0 }}</p>
+                </article>
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">Medium Risk</p>
+                    <p class="metric-value value-warning">{{ by_risk.medium or 0 }}</p>
+                </article>
+            </section>
+        </div>
+
+        <aside class="side-panel" aria-label="Right Sidebar">
+            <article class="card">
+                <div class="card-header">
+                    <h2>Top Attacker IPs</h2>
+                    <span class="subtle">Top 5</span>
+                </div>
+
+                {% if top_attacker_ips %}
+                <ul class="ranked-list">
+                    {% for item in top_attacker_ips %}
+                    <li class="ranked-item">
+                        <span class="ranked-ip">{{ item.ip }}</span>
+                        <span class="ranked-count">{{ item.count }} session{{ '' if item.count == 1 else 's' }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="muted">No dossier data available yet.</p>
+                {% endif %}
+            </article>
+
+            <article class="card">
+                <div class="card-header">
+                    <h2>Recent Activity</h2>
+                    <span class="subtle">Last 5 sessions</span>
+                </div>
+
+                {% if recent_activity %}
+                <div class="activity-feed">
+                    {% for item in recent_activity %}
+                    <a href="/dossier/{{ item.session_id }}" class="activity-row link" style="text-decoration: none;">
+                        <div class="activity-left">
+                            <span class="activity-ip">{{ item.src_ip }}</span>
+                            <span><span class="badge badge-{{ item.type if item.type in ['bot', 'human'] else 'human' }}">{{ item.type }}</span></span>
+                        </div>
+                        <span class="activity-time">{{ item.time_ago }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="muted">No recent sessions to display.</p>
+                {% endif %}
+            </article>
+        </aside>
     </section>
 
     <section class="card" aria-label="Intent Distribution">

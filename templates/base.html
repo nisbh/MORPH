@@ -51,7 +51,7 @@
         }
 
         .topbar-inner {
-            max-width: 1240px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 16px 24px;
             display: flex;
@@ -63,17 +63,13 @@
         .logo {
             display: inline-flex;
             align-items: center;
-            gap: 10px;
-            color: var(--text);
+            color: var(--accent);
             text-decoration: none;
             font-size: 18px;
-            font-weight: 600;
+            font-weight: 700;
             letter-spacing: 0.01em;
-        }
-
-        .logo-mark {
-            font-size: 20px;
-            line-height: 1;
+            border-left: 3px solid var(--accent);
+            padding-left: 12px;
         }
 
         .nav-links {
@@ -105,7 +101,7 @@
         }
 
         main {
-            max-width: 1240px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 24px;
         }
@@ -162,6 +158,16 @@
             flex-direction: column;
             justify-content: center;
             gap: 8px;
+        }
+
+        .stat-card {
+            transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.22), 0 12px 24px rgba(88, 166, 255, 0.2);
         }
 
         .metric-label {
@@ -426,6 +432,26 @@
             box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
         }
 
+        .select {
+            width: 100%;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: #0f141b;
+            color: var(--text);
+            padding: 10px 12px;
+            outline: none;
+            appearance: none;
+            background-image: linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%), linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+            background-position: calc(100% - 16px) calc(50% - 3px), calc(100% - 10px) calc(50% - 3px);
+            background-size: 6px 6px, 6px 6px;
+            background-repeat: no-repeat;
+        }
+
+        .select:focus {
+            border-color: rgba(88, 166, 255, 0.6);
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+        }
+
         .terminal {
             background: #0a0f14;
             border: 1px solid var(--border);
@@ -539,14 +565,12 @@
 <body>
     <header class="topbar">
         <div class="topbar-inner">
-            <a href="/" class="logo">
-                <span class="logo-mark" aria-hidden="true">🦠</span>
-                <span>MORPH</span>
-            </a>
+            <a href="/" class="logo">MORPH</a>
             <nav class="nav-links" aria-label="Primary navigation">
                 <a href="/" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">Dashboard</a>
                 <a href="/sessions" class="nav-link {% if request.endpoint in ['sessions', 'dossier_detail'] %}active{% endif %}">Sessions</a>
                 <a href="/live-logs" class="nav-link {% if request.endpoint in ['live_logs', 'api_logs'] %}active{% endif %}">Live Logs</a>
+                <a href="/about" class="nav-link {% if request.endpoint == 'about' %}active{% endif %}">About</a>
             </nav>
         </div>
     </header>

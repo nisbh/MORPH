@@ -77,9 +77,9 @@
         <div class="kv-grid">
             <span class="kv-label">Location</span>
             {% if osint.is_private %}
-            <span>🌐 Private/Internal Network</span>
+            <span>Private/Internal Network</span>
             {% else %}
-            <span>{{ osint.country_flag or '🌐' }} {{ osint.city or 'Unknown' }}, {{ osint.region or '' }} {{ osint.country or '' }}</span>
+            <span>{{ osint.city or 'Unknown' }}, {{ osint.region or '' }} {{ osint.country or '' }}</span>
             {% endif %}
 
             <span class="kv-label">Organization</span>
