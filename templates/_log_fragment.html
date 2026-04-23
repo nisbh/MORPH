@@ -1,7 +1,7 @@
 {% for entry in entries %}
 <div class="log-line log-{{ entry.event_type }}">
-	<span class="log-time">{{ entry.timestamp }}</span>
-	<span class="log-text">{{ entry.message }}</span>
+	<span class="log-time">[{{ entry.timestamp }}]</span>
+	<span class="log-text">[{{ entry.label }}] {{ entry.src_ip }} &rarr; {{ entry.details }}</span>
 </div>
 {% endfor %}
 {% if not entries %}

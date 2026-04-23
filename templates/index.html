@@ -145,6 +145,50 @@
         white-space: nowrap;
     }
 
+    .stat-link {
+        display: block;
+        position: relative;
+        color: inherit;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .stat-link:visited {
+        color: inherit;
+    }
+
+    .stat-link .metric-card {
+        height: 100%;
+    }
+
+    .stat-link::after {
+        content: "\2192";
+        position: absolute;
+        right: 14px;
+        bottom: 12px;
+        color: var(--text-secondary);
+        opacity: 0;
+        transform: translateX(-4px);
+        transition: opacity 140ms ease, transform 140ms ease;
+        pointer-events: none;
+    }
+
+    .stat-link:hover::after {
+        opacity: 0.9;
+        transform: translateX(0);
+    }
+
+    .stat-link:hover .stat-card {
+        border-color: var(--accent);
+        transform: translateY(-2px);
+        box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.22), 0 12px 24px rgba(88, 166, 255, 0.2);
+    }
+
+    .last-attack {
+        margin-top: -2px;
+        font-size: 0.85rem;
+    }
+
     @media (max-width: 1180px) {
         .dashboard-top {
             grid-template-columns: 1fr;
@@ -187,42 +231,60 @@
     <section class="dashboard-top" aria-label="Summary Panels">
         <div class="metrics-stack">
             <section class="grid-4" aria-label="Primary Metrics">
-                <article class="card metric-card stat-card">
-                    <p class="metric-label">Total Sessions</p>
-                    <p class="metric-value value-accent">{{ summary.total or 0 }}</p>
-                </article>
-                <article class="card metric-card stat-card">
-                    <p class="metric-label">Bots</p>
-                    <p class="metric-value" style="color: var(--bot);">{{ by_type.bot or 0 }}</p>
-                </article>
-                <article class="card metric-card stat-card">
-                    <p class="metric-label">Humans</p>
-                    <p class="metric-value value-success">{{ by_type.human or 0 }}</p>
-                </article>
-                <article class="card metric-card stat-card">
-                    <p class="metric-label">High Risk</p>
-                    <p class="metric-value value-danger">{{ by_risk.high or 0 }}</p>
-                </article>
+                <a href="/sessions" class="stat-link" aria-label="View sessions">
+                    <article class="card metric-card stat-card">
+                        <p class="metric-label">Total Sessions</p>
+                        <p class="metric-value value-accent">{{ summary.total or 0 }}</p>
+                    </article>
+                </a>
+                <a href="/sessions?type=bot" class="stat-link" aria-label="View bot sessions">
+                    <article class="card metric-card stat-card">
+                        <p class="metric-label">Bots</p>
+                        <p class="metric-value" style="color: var(--bot);">{{ by_type.bot or 0 }}</p>
+                    </article>
+                </a>
+                <a href="/sessions?type=human" class="stat-link" aria-label="View human sessions">
+                    <article class="card metric-card stat-card">
+                        <p class="metric-label">Humans</p>
+                        <p class="metric-value value-success">{{ by_type.human or 0 }}</p>
+                    </article>
+                </a>
+                <a href="/sessions?risk=high" class="stat-link" aria-label="View high risk sessions">
+                    <article class="card metric-card stat-card">
+                        <p class="metric-label">High Risk</p>
+                        <p class="metric-value value-danger">{{ by_risk.high or 0 }}</p>
+                    </article>
+                </a>
             </section>
 
             <section class="grid-4" aria-label="Secondary Metrics">
-                <article class="card metric-card stat-card">
-                    <p class="metric-label">Unique IPs</p>
-                    <p class="metric-value value-accent">{{ summary.unique_ips or 0 }}</p>
-                </article>
-                <article class="card metric-card stat-card">
-                    <p class="metric-label">Commands</p>
-                    <p class="metric-value value-warning">{{ summary.total_commands or 0 }}</p>
-                </article>
-                <article class="card metric-card stat-card">
-                    <p class="metric-label">Downloads</p>
-                    <p class="metric-value value-warning">{{ summary.total_downloads or 0 }}</p>
-                </article>
-                <article class="card metric-card stat-card">
-                    <p class="metric-label">Medium Risk</p>
-                    <p class="metric-value value-warning">{{ by_risk.medium or 0 }}</p>
-                </article>
+                <a href="/intelligence" class="stat-link" aria-label="View intelligence">
+                    <article class="card metric-card stat-card">
+                        <p class="metric-label">Unique IPs</p>
+                        <p class="metric-value value-accent">{{ summary.unique_ips or 0 }}</p>
+                    </article>
+                </a>
+                <a href="/sessions" class="stat-link" aria-label="View sessions commands">
+                    <article class="card metric-card stat-card">
+                        <p class="metric-label">Commands</p>
+                        <p class="metric-value value-warning">{{ summary.total_commands or 0 }}</p>
+                    </article>
+                </a>
+                <a href="/sessions" class="stat-link" aria-label="View sessions downloads">
+                    <article class="card metric-card stat-card">
+                        <p class="metric-label">Downloads</p>
+                        <p class="metric-value value-warning">{{ summary.total_downloads or 0 }}</p>
+                    </article>
+                </a>
+                <a href="/sessions?risk=medium" class="stat-link" aria-label="View medium risk sessions">
+                    <article class="card metric-card stat-card">
+                        <p class="metric-label">Medium Risk</p>
+                        <p class="metric-value value-warning">{{ by_risk.medium or 0 }}</p>
+                    </article>
+                </a>
             </section>
+
+            <p class="subtle last-attack">Last attack: {{ last_attack_ago }}</p>
         </div>
 
         <aside class="card sidebar-panel" aria-label="Right Sidebar">
@@ -326,7 +388,13 @@
                     {% for d in recent %}
                     {% set cls = d.classification or {} %}
                     <tr>
-                        <td>{{ d.src_ip or 'Unknown' }}</td>
+                        <td>
+                            {% if d.src_ip and d.src_ip != 'Unknown' %}
+                            <a class="link" href="{{ url_for('intelligence_detail', ip=d.src_ip) }}">{{ d.src_ip }}</a>
+                            {% else %}
+                            <span class="muted">Unknown</span>
+                            {% endif %}
+                        </td>
                         <td>{{ '%.1f'|format(d.duration_seconds or 0) }}s</td>
                         <td><span class="badge badge-{{ cls.type or 'bot' }}">{{ cls.type or 'unknown' }}</span></td>
                         <td><span class="badge badge-{{ cls.intent or 'recon' }}">{{ cls.intent or 'unknown' }}</span></td>

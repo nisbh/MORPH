@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from datetime import datetime, timezone
+import json
 from math import ceil
 from pathlib import Path
 import threading
@@ -23,6 +24,7 @@ from ip_profiles import PROFILES_PATH, build_ip_profiles, enrich_ip_profiles, lo
 app = Flask(__name__)
 
 DECEPTION_LOG = "morph/deception.log"
+COWRIE_JSON_LOG = Path("/home/cowrie/cowrie/var/log/cowrie/cowrie.json")
 CACHE_TTL_SECONDS = 60
 SESSIONS_PER_PAGE = 50
 IP_DETAIL_SESSIONS_PER_PAGE = 20
@@ -54,6 +56,7 @@ _ip_profiles_cache_time = 0
 
 _enrichment_lock = threading.Lock()
 _enrichment_in_progress = False
+_enrich_status = {"total": 0, "done": 0, "running": False}
 
 
 def _format_minutes_ago(epoch_seconds: float | int | None) -> str:
@@ -170,6 +173,17 @@ def format_time_ago(timestamp: datetime | None) -> str:
         days = delta_seconds // 86400
         return f"{days}d ago"
     return timestamp.strftime("%Y-%m-%d")
+
+
+def format_minutes_ago(timestamp: datetime | None) -> str:
+    """Return minute-focused relative age text for recent attack display."""
+    if timestamp is None:
+        return "unknown"
+
+    now = datetime.now(timezone.utc)
+    delta_seconds = max(0, int((now - timestamp).total_seconds()))
+    minutes = max(1, delta_seconds // 60)
+    return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
 
 
 def _cache_expired(cache_time: int | float) -> bool:
@@ -349,10 +363,19 @@ def get_cached_dashboard_data() -> dict[str, Any]:
             for row in recent_rows
         ]
 
+        latest_generated_at: datetime | None = None
+        for row in rows:
+            generated_at_dt = parse_iso_datetime(row.get("generated_at"))
+            if generated_at_dt and (latest_generated_at is None or generated_at_dt > latest_generated_at):
+                latest_generated_at = generated_at_dt
+
+        last_attack_ago = format_minutes_ago(latest_generated_at)
+
         _dashboard_cache = {
             "top_attacker_ips": top_attacker_ips,
             "recent": recent,
             "recent_activity": recent_activity,
+            "last_attack_ago": last_attack_ago,
         }
         _dashboard_cache_time = time.time()
 
@@ -360,7 +383,31 @@ def get_cached_dashboard_data() -> dict[str, Any]:
         "top_attacker_ips": [],
         "recent": [],
         "recent_activity": [],
+        "last_attack_ago": "unknown",
     }
+
+
+def _calculate_threat_score(profile: dict[str, Any]) -> int:
+    """Calculate threat score from risk and intent distributions."""
+    risk_breakdown = profile.get("risk_breakdown") or {}
+    intent_breakdown = profile.get("intent_breakdown") or {}
+
+    high_risk = int(risk_breakdown.get("high", 0))
+    medium_risk = int(risk_breakdown.get("medium", 0))
+    persistence = int(intent_breakdown.get("persistence", 0))
+
+    return (high_risk * 3) + medium_risk + (persistence * 2)
+
+
+def _apply_threat_scores(profiles: dict[str, dict[str, Any]]) -> bool:
+    """Ensure every profile has a computed threat_score; return whether data changed."""
+    changed = False
+    for profile in profiles.values():
+        score = _calculate_threat_score(profile)
+        if int(profile.get("threat_score", -1)) != score:
+            profile["threat_score"] = score
+            changed = True
+    return changed
 
 
 def _merge_osint_into_profiles(
@@ -386,11 +433,14 @@ def get_cached_ip_profiles(force_refresh: bool = False) -> dict[str, dict[str, A
 
         if not force_refresh and file_is_fresh:
             profiles = load_ip_profiles()
+            if _apply_threat_scores(profiles):
+                save_ip_profiles(profiles)
         else:
             dossiers = get_cached_dossiers()
             profiles = build_ip_profiles(dossiers)
             saved_profiles = load_ip_profiles()
             _merge_osint_into_profiles(profiles, saved_profiles)
+            _apply_threat_scores(profiles)
             save_ip_profiles(profiles)
 
         _ip_profiles_cache = profiles
@@ -415,6 +465,17 @@ def _sort_intelligence_profiles(
     sort_key: str,
 ) -> list[dict[str, Any]]:
     """Apply requested sort mode for /intelligence list."""
+    if sort_key == "threat_score":
+        return sorted(
+            profiles,
+            key=lambda p: (
+                int(p.get("threat_score", 0)),
+                int(p.get("total_sessions", 0)),
+                parse_iso_datetime(p.get("last_seen")) or datetime.fromtimestamp(0, tz=timezone.utc),
+            ),
+            reverse=True,
+        )
+
     if sort_key == "last_seen":
         return sorted(
             profiles,
@@ -465,16 +526,121 @@ def _build_ip_timeline(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _run_ip_enrichment_background() -> None:
     """Background worker for enriching cached profiles."""
-    global _ip_profiles_cache, _ip_profiles_cache_time, _enrichment_in_progress
+    global _ip_profiles_cache, _ip_profiles_cache_time, _enrichment_in_progress, _enrich_status
+
+    def progress_update(done: int, total: int, _ip: str) -> None:
+        with _enrichment_lock:
+            _enrich_status["total"] = total
+            _enrich_status["done"] = done
+            _enrich_status["running"] = True
 
     try:
         profiles = get_cached_ip_profiles(force_refresh=True)
-        enriched = enrich_ip_profiles(profiles)
+        enriched = enrich_ip_profiles(profiles, progress_callback=progress_update)
+        if _apply_threat_scores(enriched):
+            save_ip_profiles(enriched)
         _ip_profiles_cache = enriched
         _ip_profiles_cache_time = time.time()
     finally:
         with _enrichment_lock:
             _enrichment_in_progress = False
+            _enrich_status["running"] = False
+            if int(_enrich_status.get("done", 0)) < int(_enrich_status.get("total", 0)):
+                _enrich_status["done"] = int(_enrich_status.get("total", 0))
+
+
+def get_enrich_status_snapshot() -> dict[str, Any]:
+    """Return a copy of current enrichment progress status."""
+    with _enrichment_lock:
+        return {
+            "total": int(_enrich_status.get("total", 0)),
+            "done": int(_enrich_status.get("done", 0)),
+            "running": bool(_enrich_status.get("running", False)),
+        }
+
+
+def parse_cowrie_timestamp(value: str | None) -> str:
+    """Parse a Cowrie ISO timestamp and return HH:MM:SS in UTC."""
+    dt = parse_iso_datetime(value)
+    if dt is None:
+        return "--:--:--"
+    return dt.strftime("%H:%M:%S")
+
+
+def _extract_login_credentials(event: dict[str, Any]) -> str:
+    """Return username:password from a Cowrie login event."""
+    username = str(event.get("username") or "-")
+    password = str(event.get("password") or "-")
+    return f"{username}:{password}"
+
+
+def _to_int(value: Any) -> int:
+    """Best-effort conversion to int for UI display values."""
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def read_cowrie_event_tail(log_path: Path, max_events: int = 30) -> list[dict[str, str]]:
+    """Read the latest matching Cowrie JSON events for live log rendering."""
+    if not log_path.exists():
+        return []
+
+    event_map: dict[str, tuple[str, str]] = {
+        "cowrie.session.connect": ("connect", "CONNECT"),
+        "cowrie.login.failed": ("login-fail", "LOGIN FAIL"),
+        "cowrie.login.success": ("login-ok", "LOGIN OK"),
+        "cowrie.command.input": ("command", "CMD"),
+        "cowrie.session.closed": ("disconnect", "DISCONNECT"),
+    }
+
+    entries: deque[dict[str, str]] = deque(maxlen=max_events)
+
+    try:
+        with open(log_path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                raw = line.strip()
+                if not raw:
+                    continue
+
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+
+                event_id = str(event.get("eventid") or "")
+                if event_id not in event_map:
+                    continue
+
+                event_type, label = event_map[event_id]
+                src_ip = str(event.get("src_ip") or "-")
+
+                if event_id in {"cowrie.login.failed", "cowrie.login.success"}:
+                    details = _extract_login_credentials(event)
+                elif event_id == "cowrie.command.input":
+                    details = str(event.get("input") or "-")
+                elif event_id == "cowrie.session.closed":
+                    duration_seconds = _to_int(event.get("duration"))
+                    details = f"duration {duration_seconds}s"
+                elif event_id == "cowrie.session.connect":
+                    details = "session opened"
+                else:
+                    details = "-"
+
+                entries.append(
+                    {
+                        "timestamp": parse_cowrie_timestamp(event.get("timestamp")),
+                        "event_type": event_type,
+                        "label": label,
+                        "src_ip": src_ip,
+                        "details": details,
+                    }
+                )
+    except OSError:
+        return []
+
+    return list(entries)
 
 
 def _parse_multi_filter(
@@ -658,6 +824,7 @@ def index():
         recent=dashboard_data["recent"],
         top_attacker_ips=dashboard_data["top_attacker_ips"],
         recent_activity=dashboard_data["recent_activity"],
+        last_attack_ago=dashboard_data["last_attack_ago"],
     )
 
 
@@ -711,7 +878,7 @@ def intelligence():
     """Aggregated attacker IP intelligence profiles."""
     page = request.args.get("page", default=1, type=int) or 1
     sort = request.args.get("sort", default="sessions", type=str) or "sessions"
-    if sort not in {"sessions", "last_seen", "highest_risk"}:
+    if sort not in {"sessions", "last_seen", "highest_risk", "threat_score"}:
         sort = "sessions"
 
     profiles_map = get_cached_ip_profiles()
@@ -733,6 +900,7 @@ def intelligence():
 
     with _enrichment_lock:
         enriching = _enrichment_in_progress
+    enrich_status = get_enrich_status_snapshot()
 
     return render_template(
         "intelligence.html",
@@ -747,6 +915,7 @@ def intelligence():
             "last_updated": get_ip_profiles_last_updated_text(),
         },
         enrichment_in_progress=enriching,
+        enrich_status=enrich_status,
         sort=sort,
         page=current_page,
         total_pages=total_pages,
@@ -845,10 +1014,20 @@ def intelligence_enrich():
     with _enrichment_lock:
         if not _enrichment_in_progress:
             _enrichment_in_progress = True
+            _enrich_status["total"] = len(profiles)
+            _enrich_status["done"] = 0
+            _enrich_status["running"] = True
             worker = threading.Thread(target=_run_ip_enrichment_background, daemon=True)
             worker.start()
 
     return jsonify({"status": "enriching", "count": pending_count})
+
+
+@app.route("/intelligence/enrich/status")
+def intelligence_enrich_status():
+    """Return enrichment progress HTML fragment for HTMX polling."""
+    status = get_enrich_status_snapshot()
+    return render_template("_enrich_status.html", status=status)
 
 
 @app.route("/dossier/<session_id>")
@@ -875,9 +1054,8 @@ def about():
 
 @app.route("/api/logs")
 def api_logs():
-    """Return latest log lines as HTML fragment for HTMX."""
-    lines = read_log_tail(DECEPTION_LOG, 20)
-    entries = [parse_log_line(line) for line in lines if line.strip()]
+    """Return latest Cowrie JSON log events as HTML fragment for HTMX."""
+    entries = read_cowrie_event_tail(COWRIE_JSON_LOG, 30)
     return render_template("_log_fragment.html", entries=entries)
 
 

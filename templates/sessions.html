@@ -102,6 +102,16 @@
         padding: 8px 12px;
     }
 
+    .session-ip-link {
+        color: #58a6ff;
+        text-decoration: none;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .session-ip-link:hover {
+        text-decoration: underline;
+    }
+
     .btn.disabled {
         opacity: 0.55;
         pointer-events: none;
@@ -228,7 +238,13 @@
                                         {{ s.session_id[:12] }}{% if s.session_id|length > 12 %}...{% endif %}
                                     </a>
                                 </td>
-                                <td>{{ s.src_ip or 'Unknown' }}</td>
+                                <td>
+                                    {% if s.src_ip and s.src_ip != 'Unknown' %}
+                                    <a class="session-ip-link" href="{{ url_for('intelligence_detail', ip=s.src_ip) }}">{{ s.src_ip }}</a>
+                                    {% else %}
+                                    <span class="muted">Unknown</span>
+                                    {% endif %}
+                                </td>
                                 <td>{{ "%.1f"|format(s.duration_seconds or 0) }}s</td>
                                 <td>{{ s.commands|length }}</td>
                                 <td><span class="badge badge-{{ c.type if c.type in ['bot', 'human'] else 'human' }}">{{ c.type or 'unknown' }}</span></td>

@@ -119,6 +119,67 @@
         gap: 12px;
     }
 
+    .threat-score {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        border-radius: 999px;
+        padding: 3px 10px;
+        font-weight: 700;
+        font-size: 0.78rem;
+        border: 1px solid transparent;
+    }
+
+    .threat-score.score-0 {
+        color: #8b949e;
+        background: rgba(139, 148, 158, 0.14);
+        border-color: rgba(139, 148, 158, 0.35);
+    }
+
+    .threat-score.score-1-5 {
+        color: #d29922;
+        background: rgba(210, 153, 34, 0.14);
+        border-color: rgba(210, 153, 34, 0.35);
+    }
+
+    .threat-score.score-6-15 {
+        color: #f85149;
+        background: rgba(248, 81, 73, 0.14);
+        border-color: rgba(248, 81, 73, 0.35);
+    }
+
+    .threat-score.score-16plus {
+        color: #da3633;
+        background: rgba(218, 54, 51, 0.18);
+        border-color: rgba(218, 54, 51, 0.4);
+    }
+
+    .enrich-panel {
+        display: grid;
+        gap: 8px;
+        min-width: min(360px, 100%);
+    }
+
+    .enrich-progress-track {
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        background: #0f141b;
+        overflow: hidden;
+    }
+
+    .enrich-progress-fill {
+        height: 100%;
+        background: var(--accent);
+        transition: width 220ms ease;
+    }
+
+    .enrich-progress-fill.complete {
+        background: #3fb950;
+    }
+
     .btn.disabled {
         opacity: 0.55;
         pointer-events: none;
@@ -154,8 +215,9 @@
         <div class="actions-row">
             <div class="subtle">Last updated: {{ intelligence_summary.last_updated }}</div>
             <div style="display: flex; align-items: center; gap: 10px;">
-                <button id="enrich-all" class="btn" type="button">Enrich All IPs</button>
-                <span id="enrich-status" class="subtle">{% if enrichment_in_progress %}Enrichment in progress...{% else %}Idle{% endif %}</span>
+                <button id="enrich-all" class="btn" type="button" {% if enrich_status.running %}disabled{% endif %}>Enrich All IPs</button>
+                {% set status = enrich_status %}
+                {% include "_enrich_status.html" %}
             </div>
         </div>
 
@@ -190,6 +252,7 @@
                     <option value="sessions" {% if sort == 'sessions' %}selected{% endif %}>Sessions</option>
                     <option value="last_seen" {% if sort == 'last_seen' %}selected{% endif %}>Last Seen</option>
                     <option value="highest_risk" {% if sort == 'highest_risk' %}selected{% endif %}>Highest Risk</option>
+                    <option value="threat_score" {% if sort == 'threat_score' %}selected{% endif %}>Threat Score</option>
                 </select>
                 <button class="btn ghost" type="submit">Apply</button>
             </form>
@@ -207,6 +270,7 @@
                         <th>Primary Type</th>
                         <th>Top Intent</th>
                         <th><a class="sortable-link {% if sort == 'highest_risk' %}active{% endif %}" href="{{ url_for('intelligence', page=1, sort='highest_risk') }}">Highest Risk</a></th>
+                        <th><a class="sortable-link {% if sort == 'threat_score' %}active{% endif %}" href="{{ url_for('intelligence', page=1, sort='threat_score') }}">Threat Score</a></th>
                         <th>First Seen</th>
                         <th><a class="sortable-link {% if sort == 'last_seen' %}active{% endif %}" href="{{ url_for('intelligence', page=1, sort='last_seen') }}">Last Seen</a></th>
                         <th>View</th>
@@ -215,6 +279,7 @@
                 <tbody>
                     {% for profile in profiles %}
                     {% set osint = profile.osint or {} %}
+                    {% set threat_score = profile.threat_score or 0 %}
                     <tr>
                         <td><span class="ip-mono">{{ profile.ip }}</span></td>
                         <td>
@@ -238,6 +303,13 @@
                         <td><span class="badge badge-{{ profile.primary_type if profile.primary_type in ['bot', 'human'] else 'human' }}">{{ profile.primary_type or 'unknown' }}</span></td>
                         <td><span class="badge badge-{{ profile.primary_intent if profile.primary_intent in ['recon', 'exploit', 'persistence'] else 'recon' }}">{{ profile.primary_intent or 'unknown' }}</span></td>
                         <td><span class="badge badge-{{ profile.highest_risk if profile.highest_risk in ['low', 'medium', 'high'] else 'low' }}">{{ profile.highest_risk or 'unknown' }}</span></td>
+                        <td>
+                            <span
+                                class="threat-score {% if threat_score == 0 %}score-0{% elif threat_score <= 5 %}score-1-5{% elif threat_score <= 15 %}score-6-15{% else %}score-16plus{% endif %}"
+                            >
+                                {{ threat_score|intcomma }}
+                            </span>
+                        </td>
                         <td>{{ profile.first_seen|human_ts }}</td>
                         <td>{{ profile.last_seen|human_ts }}</td>
                         <td><a class="btn ghost" href="{{ url_for('intelligence_detail', ip=profile.ip) }}">View</a></td>
@@ -274,26 +346,33 @@
 <script>
     (function () {
         const enrichButton = document.getElementById("enrich-all");
-        const statusEl = document.getElementById("enrich-status");
+
+        const refreshStatus = () => {
+            if (!window.htmx) {
+                return;
+            }
+            window.htmx.ajax("GET", "/intelligence/enrich/status", { target: "#enrich-status", swap: "outerHTML" });
+        };
 
         if (enrichButton) {
             enrichButton.addEventListener("click", async () => {
                 enrichButton.disabled = true;
-                statusEl.textContent = "Starting enrichment...";
 
                 try {
-                    const response = await fetch("/intelligence/enrich", { method: "POST" });
-                    const payload = await response.json();
-                    statusEl.textContent = `Enrichment started for ${payload.count} IPs`;
+                    await fetch("/intelligence/enrich", { method: "POST" });
+                    refreshStatus();
                 } catch (_error) {
-                    statusEl.textContent = "Failed to start enrichment";
-                } finally {
-                    setTimeout(() => {
-                        enrichButton.disabled = false;
-                    }, 1500);
+                    enrichButton.disabled = false;
                 }
             });
         }
+
+        document.body.addEventListener("htmx:afterSwap", (event) => {
+            if (!event.target || event.target.id !== "enrich-status" || !enrichButton) {
+                return;
+            }
+            enrichButton.disabled = event.target.hasAttribute("hx-trigger");
+        });
     }());
 </script>
 {% endblock %}

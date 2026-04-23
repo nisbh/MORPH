@@ -1,0 +1,25 @@
+<div
+    id="enrich-status"
+    {% if status.running %}
+    hx-get="/intelligence/enrich/status"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML"
+    {% endif %}
+>
+    {% if status.running %}
+    {% set pct = ((status.done / status.total) * 100) if status.total else 0 %}
+    <div class="enrich-panel">
+        <div class="enrich-progress-track">
+            <div class="enrich-progress-fill" style="width: {{ '%.2f'|format(pct) }}%;"></div>
+        </div>
+        <span class="subtle">Enriched {{ status.done|intcomma }} of {{ status.total|intcomma }} IPs</span>
+    </div>
+    {% elif status.total and status.done >= status.total %}
+    <div class="enrich-panel">
+        <div class="enrich-progress-track">
+            <div class="enrich-progress-fill complete" style="width: 100%;"></div>
+        </div>
+        <span class="subtle">Complete: enriched {{ status.done|intcomma }} IPs</span>
+    </div>
+    {% endif %}
+</div>

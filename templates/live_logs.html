@@ -32,12 +32,36 @@
         background: var(--warning);
     }
 
+    .dot-login-ok {
+        background: #3fb950;
+    }
+
     .dot-command {
         background: var(--danger);
     }
 
     .dot-disconnect {
         background: var(--accent);
+    }
+
+    .log-connect .log-text {
+        color: var(--success);
+    }
+
+    .log-login-fail .log-text {
+        color: var(--warning);
+    }
+
+    .log-login-ok .log-text {
+        color: #3fb950;
+    }
+
+    .log-command .log-text {
+        color: var(--danger);
+    }
+
+    .log-disconnect .log-text {
+        color: #58a6ff;
     }
 
 </style>
@@ -51,12 +75,13 @@
     <section class="card">
         <div class="card-header">
             <h2>Event Stream</h2>
-            <span class="subtle">Latest 20 lines</span>
+            <span class="subtle">Latest 30 events</span>
         </div>
 
         <div class="log-legend" aria-label="Event Colors">
             <span class="legend-item"><span class="legend-dot dot-connect"></span>Connect</span>
-            <span class="legend-item"><span class="legend-dot dot-login"></span>Login Attempt</span>
+            <span class="legend-item"><span class="legend-dot dot-login"></span>Login Fail</span>
+            <span class="legend-item"><span class="legend-dot dot-login-ok"></span>Login OK</span>
             <span class="legend-item"><span class="legend-dot dot-command"></span>Command</span>
             <span class="legend-item"><span class="legend-dot dot-disconnect"></span>Disconnect</span>
         </div>

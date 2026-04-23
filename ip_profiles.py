@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import ipaddress
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -231,57 +231,67 @@ def load_ip_profiles() -> dict[str, dict[str, Any]]:
     return {}
 
 
-def enrich_ip_profiles(profiles: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def enrich_ip_profiles(
+    profiles: dict[str, dict[str, Any]],
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Enrich cached profiles with ipinfo.io OSINT and persist results."""
     saved_profiles = load_ip_profiles()
+    total = len(profiles)
+    done = 0
 
     for ip, profile in profiles.items():
-        existing_osint = profile.get("osint") or {}
-        saved_osint = (saved_profiles.get(ip) or {}).get("osint") or {}
-
-        if saved_osint and not existing_osint:
-            profile["osint"] = saved_osint
-            existing_osint = saved_osint
-
-        if existing_osint:
-            continue
-
-        if _is_private_or_local_ip(ip):
-            profile["osint"] = {
-                "is_private": True,
-                "city": "",
-                "region": "",
-                "country": "",
-                "country_flag": "",
-                "org": "",
-                "timezone": "",
-                "hostname": "",
-            }
-            continue
-
         try:
-            payload = _fetch_ipinfo(ip)
-            country_code = str(payload.get("country") or "").upper()
-            profile["osint"] = {
-                "city": str(payload.get("city") or ""),
-                "region": str(payload.get("region") or ""),
-                "country": country_code,
-                "country_flag": _country_code_to_flag(country_code),
-                "org": str(payload.get("org") or ""),
-                "timezone": str(payload.get("timezone") or ""),
-                "hostname": str(payload.get("hostname") or ""),
-            }
-        except (URLError, HTTPError, TimeoutError, json.JSONDecodeError) as exc:
-            profile["osint"] = {
-                "error": str(exc),
-                "city": "",
-                "region": "",
-                "country": "",
-                "country_flag": "",
-                "org": "",
-                "timezone": "",
-                "hostname": "",
-            }
+            existing_osint = profile.get("osint") or {}
+            saved_osint = (saved_profiles.get(ip) or {}).get("osint") or {}
+
+            if saved_osint and not existing_osint:
+                profile["osint"] = saved_osint
+                existing_osint = saved_osint
+
+            if existing_osint:
+                continue
+
+            if _is_private_or_local_ip(ip):
+                profile["osint"] = {
+                    "is_private": True,
+                    "city": "",
+                    "region": "",
+                    "country": "",
+                    "country_flag": "",
+                    "org": "",
+                    "timezone": "",
+                    "hostname": "",
+                }
+                continue
+
+            try:
+                payload = _fetch_ipinfo(ip)
+                country_code = str(payload.get("country") or "").upper()
+                profile["osint"] = {
+                    "city": str(payload.get("city") or ""),
+                    "region": str(payload.get("region") or ""),
+                    "country": country_code,
+                    "country_flag": _country_code_to_flag(country_code),
+                    "org": str(payload.get("org") or ""),
+                    "timezone": str(payload.get("timezone") or ""),
+                    "hostname": str(payload.get("hostname") or ""),
+                }
+            except (URLError, HTTPError, TimeoutError, json.JSONDecodeError) as exc:
+                profile["osint"] = {
+                    "error": str(exc),
+                    "city": "",
+                    "region": "",
+                    "country": "",
+                    "country_flag": "",
+                    "org": "",
+                    "timezone": "",
+                    "hostname": "",
+                }
+        finally:
+            done += 1
+            if progress_callback is not None:
+                progress_callback(done, total, ip)
 
     save_ip_profiles(profiles)
     return profiles
