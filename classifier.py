@@ -89,7 +89,7 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
         - matched_rules: list of triggered rule names
     """
     commands = session.get("commands", [])
-    login_attempts = session.get("login_attempts", [])
+    login_attempts = [a for a in session.get("login_attempts", []) if a and isinstance(a, dict)]
     downloads = session.get("downloads", [])
     duration = session.get("duration_seconds", 0)
 
