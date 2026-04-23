@@ -4,8 +4,8 @@
 {% block content %}
 <style>
     .intel-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        display: flex;
+        flex-wrap: wrap;
         gap: 12px;
     }
 
@@ -16,6 +16,8 @@
         padding: 14px;
         display: grid;
         gap: 8px;
+        min-width: 200px;
+        flex: 1 1 200px;
     }
 
     .intel-label {
@@ -31,6 +33,16 @@
         font-size: 1.2rem;
         font-weight: 700;
         line-height: 1.2;
+    }
+
+    .intel-subvalue {
+        color: var(--text-secondary);
+        font-size: 0.86rem;
+    }
+
+    .ip-mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        white-space: nowrap;
     }
 
     .sortable-link {
@@ -61,10 +73,19 @@
     }
 
     .org-cell {
-        max-width: 260px;
+        display: inline-block;
+        max-width: 250px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .intel-table-wrap {
+        overflow-x: auto;
+    }
+
+    #intel-table {
+        min-width: 1080px;
     }
 
     .actions-row {
@@ -104,16 +125,10 @@
     }
 
     @media (max-width: 1080px) {
-        .intel-summary-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
+        .intel-summary-card { min-width: 230px; }
     }
 
     @media (max-width: 720px) {
-        .intel-summary-grid {
-            grid-template-columns: 1fr;
-        }
-
         .actions-row {
             flex-direction: column;
             align-items: flex-start;
@@ -147,19 +162,21 @@
         <div class="intel-summary-grid">
             <article class="intel-summary-card">
                 <span class="intel-label">Total Unique IPs Tracked</span>
-                <span class="intel-value">{{ intelligence_summary.total_unique_ips }}</span>
+                <span class="intel-value">{{ intelligence_summary.total_unique_ips|intcomma }}</span>
             </article>
             <article class="intel-summary-card">
                 <span class="intel-label">IPs With OSINT Data</span>
-                <span class="intel-value">{{ intelligence_summary.ips_with_osint }}</span>
+                <span class="intel-value">{{ intelligence_summary.ips_with_osint|intcomma }}</span>
             </article>
             <article class="intel-summary-card">
                 <span class="intel-label">Most Active IP</span>
-                <span class="intel-value">{{ intelligence_summary.most_active_ip }} ({{ intelligence_summary.most_active_sessions }})</span>
+                <span class="intel-value ip-mono">{{ intelligence_summary.most_active_ip }}</span>
+                <span class="intel-subvalue">{{ intelligence_summary.most_active_sessions|intcomma }} sessions</span>
             </article>
             <article class="intel-summary-card">
                 <span class="intel-label">Most Dangerous IP</span>
-                <span class="intel-value">{{ intelligence_summary.most_dangerous_ip }} ({{ intelligence_summary.most_dangerous_high }} high)</span>
+                <span class="intel-value ip-mono">{{ intelligence_summary.most_dangerous_ip }}</span>
+                <span class="intel-subvalue">{{ intelligence_summary.most_dangerous_high|intcomma }} high-risk sessions</span>
             </article>
         </div>
     </section>
@@ -176,10 +193,10 @@
                 </select>
                 <button class="btn ghost" type="submit">Apply</button>
             </form>
-            <span class="subtle">Showing {{ showing_start }}-{{ showing_end }} of {{ total_ips }} IPs</span>
+            <span class="subtle">Showing {{ showing_start|intcomma }}-{{ showing_end|intcomma }} of {{ total_ips|intcomma }} IPs</span>
         </div>
 
-        <div class="table-wrap">
+        <div class="table-wrap intel-table-wrap">
             <table id="intel-table">
                 <thead>
                     <tr>
@@ -199,20 +216,30 @@
                     {% for profile in profiles %}
                     {% set osint = profile.osint or {} %}
                     <tr>
-                        <td>{{ profile.ip }}</td>
+                        <td><span class="ip-mono">{{ profile.ip }}</span></td>
                         <td>
+                            {% if osint.country %}
                             <span class="country-cell">
-                                <span class="country-flag">{{ osint.country_flag or '' }}</span>
-                                <span>{{ osint.country or 'Unknown' }}</span>
+                                {% if osint.country_flag %}<span class="country-flag">{{ osint.country_flag }}</span>{% endif %}
+                                <span>{{ osint.country }}</span>
                             </span>
+                            {% else %}
+                            <span class="muted">&mdash;</span>
+                            {% endif %}
                         </td>
-                        <td><span class="org-cell">{{ osint.org or 'Unknown' }}</span></td>
-                        <td>{{ profile.total_sessions or 0 }}</td>
+                        <td>
+                            {% if osint.org %}
+                            <span class="org-cell" title="{{ osint.org }}">{{ osint.org|truncate(30, True, '...') }}</span>
+                            {% else %}
+                            <span class="muted">&mdash;</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ profile.total_sessions|intcomma }}</td>
                         <td><span class="badge badge-{{ profile.primary_type if profile.primary_type in ['bot', 'human'] else 'human' }}">{{ profile.primary_type or 'unknown' }}</span></td>
                         <td><span class="badge badge-{{ profile.primary_intent if profile.primary_intent in ['recon', 'exploit', 'persistence'] else 'recon' }}">{{ profile.primary_intent or 'unknown' }}</span></td>
                         <td><span class="badge badge-{{ profile.highest_risk if profile.highest_risk in ['low', 'medium', 'high'] else 'low' }}">{{ profile.highest_risk or 'unknown' }}</span></td>
-                        <td>{{ (profile.first_seen or '')[:19] or '-' }}</td>
-                        <td>{{ (profile.last_seen or '')[:19] or '-' }}</td>
+                        <td>{{ profile.first_seen|human_ts }}</td>
+                        <td>{{ profile.last_seen|human_ts }}</td>
                         <td><a class="btn ghost" href="{{ url_for('intelligence_detail', ip=profile.ip) }}">View</a></td>
                     </tr>
                     {% endfor %}

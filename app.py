@@ -28,6 +28,14 @@ SESSIONS_PER_PAGE = 50
 IP_DETAIL_SESSIONS_PER_PAGE = 20
 INTELLIGENCE_IPS_PER_PAGE = 50
 IP_PROFILES_FILE_FRESH_SECONDS = 300
+TYPE_FILTER_VALUES = ("bot", "human")
+RISK_FILTER_VALUES = ("low", "medium", "high")
+INTENT_FILTER_VALUES = ("recon", "exploit", "persistence")
+FILTER_LABELS = {
+    "type": {"bot": "Bot", "human": "Human"},
+    "risk": {"low": "Low", "medium": "Medium", "high": "High"},
+    "intent": {"recon": "Recon", "exploit": "Exploit", "persistence": "Persistence"},
+}
 
 _summary_cache: dict[str, Any] | None = None
 _cache_time = 0
@@ -85,6 +93,42 @@ def get_ip_profiles_last_updated_text() -> str:
         return _format_minutes_ago(_ip_profiles_cache_time)
 
     return "unknown"
+
+
+def format_human_datetime(value: str | datetime | None) -> str:
+    """Format an ISO timestamp as 'Apr 22, 2026 00:00'."""
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone.utc)
+    else:
+        dt = parse_iso_datetime(value)
+
+    if dt is None:
+        return "-"
+
+    return dt.strftime("%b %d, %Y %H:%M")
+
+
+def format_int_comma(value: Any) -> str:
+    """Format integer values with comma separators for display."""
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return "0"
+
+
+@app.template_filter("human_ts")
+def _human_ts_filter(value: str | datetime | None) -> str:
+    """Jinja filter for human-readable timestamps."""
+    return format_human_datetime(value)
+
+
+@app.template_filter("intcomma")
+def _int_comma_filter(value: Any) -> str:
+    """Jinja filter for comma-separated integer rendering."""
+    return format_int_comma(value)
 
 
 def parse_iso_datetime(value: str | None) -> datetime | None:
@@ -433,27 +477,103 @@ def _run_ip_enrichment_background() -> None:
             _enrichment_in_progress = False
 
 
-def _sanitize_filter(value: str | None, allowed: set[str]) -> str:
-    """Normalize and validate query filters."""
-    normalized = (value or "").strip().lower()
-    return normalized if normalized in allowed else ""
+def _parse_multi_filter(
+    key: str,
+    allowed_values: tuple[str, ...],
+) -> list[str]:
+    """Parse repeated and/or comma-separated query values for a filter key."""
+    allowed_set = set(allowed_values)
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    for raw_value in request.args.getlist(key):
+        for token in str(raw_value).split(","):
+            normalized = token.strip().lower()
+            if normalized in allowed_set and normalized not in seen:
+                selected.append(normalized)
+                seen.add(normalized)
+
+    return selected
+
+
+def _join_filter_values(values: list[str]) -> str:
+    """Serialize selected filter values into comma-separated query format."""
+    return ",".join(values)
+
+
+def _build_filter_counts(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Build count metadata for each sidebar filter option."""
+    counts = {
+        "type": {key: 0 for key in TYPE_FILTER_VALUES},
+        "risk": {key: 0 for key in RISK_FILTER_VALUES},
+        "intent": {key: 0 for key in INTENT_FILTER_VALUES},
+    }
+
+    for row in rows:
+        classification = row.get("classification") or {}
+
+        row_type = (classification.get("type") or "").lower()
+        if row_type in counts["type"]:
+            counts["type"][row_type] += 1
+
+        row_risk = (classification.get("risk") or "").lower()
+        if row_risk in counts["risk"]:
+            counts["risk"][row_risk] += 1
+
+        row_intent = (classification.get("intent") or "").lower()
+        if row_intent in counts["intent"]:
+            counts["intent"][row_intent] += 1
+
+    return counts
+
+
+def _build_active_filter_tags(
+    type_filters: list[str],
+    risk_filters: list[str],
+    intent_filters: list[str],
+) -> list[str]:
+    """Build display tags for active session filters."""
+    tags: list[str] = []
+
+    for value in type_filters:
+        tags.append(f"Type: {FILTER_LABELS['type'].get(value, value.title())}")
+    for value in risk_filters:
+        tags.append(f"Risk: {FILTER_LABELS['risk'].get(value, value.title())}")
+    for value in intent_filters:
+        tags.append(f"Intent: {FILTER_LABELS['intent'].get(value, value.title())}")
+
+    return tags
 
 
 def _filter_rows(
     rows: list[dict[str, Any]],
-    type_filter: str,
-    risk_filter: str,
-    intent_filter: str,
+    type_filters: list[str],
+    risk_filters: list[str],
+    intent_filters: list[str],
 ) -> list[dict[str, Any]]:
     """Apply server-side filters to cached rows."""
     filtered = rows
 
-    if type_filter:
-        filtered = [r for r in filtered if (r.get("classification", {}).get("type") or "").lower() == type_filter]
-    if risk_filter:
-        filtered = [r for r in filtered if (r.get("classification", {}).get("risk") or "").lower() == risk_filter]
-    if intent_filter:
-        filtered = [r for r in filtered if (r.get("classification", {}).get("intent") or "").lower() == intent_filter]
+    if type_filters:
+        type_selected = set(type_filters)
+        filtered = [
+            r for r in filtered
+            if (r.get("classification", {}).get("type") or "").lower() in type_selected
+        ]
+
+    if risk_filters:
+        risk_selected = set(risk_filters)
+        filtered = [
+            r for r in filtered
+            if (r.get("classification", {}).get("risk") or "").lower() in risk_selected
+        ]
+
+    if intent_filters:
+        intent_selected = set(intent_filters)
+        filtered = [
+            r for r in filtered
+            if (r.get("classification", {}).get("intent") or "").lower() in intent_selected
+        ]
 
     return filtered
 
@@ -545,12 +665,14 @@ def index():
 def sessions():
     """List cached dossier sessions with server-side filtering and pagination."""
     page = request.args.get("page", default=1, type=int) or 1
-    type_filter = _sanitize_filter(request.args.get("type"), {"bot", "human"})
-    risk_filter = _sanitize_filter(request.args.get("risk"), {"low", "medium", "high"})
-    intent_filter = _sanitize_filter(request.args.get("intent"), {"recon", "exploit", "persistence"})
+    type_filters = _parse_multi_filter("type", TYPE_FILTER_VALUES)
+    risk_filters = _parse_multi_filter("risk", RISK_FILTER_VALUES)
+    intent_filters = _parse_multi_filter("intent", INTENT_FILTER_VALUES)
 
     all_rows = get_cached_sessions_rows()
-    filtered_rows = _filter_rows(all_rows, type_filter, risk_filter, intent_filter)
+    filtered_rows = _filter_rows(all_rows, type_filters, risk_filters, intent_filters)
+    filter_counts = _build_filter_counts(all_rows)
+    active_filter_tags = _build_active_filter_tags(type_filters, risk_filters, intent_filters)
 
     page_rows, filtered_count, total_pages, current_page = _paginate_rows(
         filtered_rows,
@@ -570,9 +692,16 @@ def sessions():
         filtered_count=filtered_count,
         total_count=get_cached_total_sessions_count(),
         filters={
-            "type": type_filter,
-            "risk": risk_filter,
-            "intent": intent_filter,
+            "type": type_filters,
+            "risk": risk_filters,
+            "intent": intent_filters,
+        },
+        filter_counts=filter_counts,
+        active_filter_tags=active_filter_tags,
+        filter_query={
+            "type": _join_filter_values(type_filters),
+            "risk": _join_filter_values(risk_filters),
+            "intent": _join_filter_values(intent_filters),
         },
     )
 
@@ -660,14 +789,45 @@ def intelligence_detail(ip: str):
     timeline = _build_ip_timeline(ip_rows)
     timeline_max = max((point["sessions"] for point in timeline), default=1)
 
+    osint = profile.get("osint") or {}
+    osint_fields = ("country", "city", "region", "org", "timezone", "hostname")
+    has_osint_data = any(str(osint.get(field) or "").strip() for field in osint_fields)
+
+    first_seen_dt = parse_iso_datetime(profile.get("first_seen"))
+    last_seen_dt = parse_iso_datetime(profile.get("last_seen"))
+
+    if first_seen_dt and not last_seen_dt:
+        last_seen_dt = first_seen_dt
+    if last_seen_dt and not first_seen_dt:
+        first_seen_dt = last_seen_dt
+
+    timeline_activity_text = "Active for less than 1 day"
+    timeline_range_text = "-"
+    if first_seen_dt and last_seen_dt:
+        active_seconds = max(0, int((last_seen_dt - first_seen_dt).total_seconds()))
+        if active_seconds < 86400:
+            timeline_activity_text = "Active for less than 1 day"
+        else:
+            active_days = active_seconds // 86400
+            if active_seconds % 86400:
+                active_days += 1
+            timeline_activity_text = f"Active for {active_days} day{'s' if active_days != 1 else ''}"
+
+        timeline_range_text = f"{format_human_datetime(first_seen_dt)} to {format_human_datetime(last_seen_dt)}"
+
     return render_template(
         "ip_detail.html",
         profile=profile,
+        has_osint_data=has_osint_data,
         command_frequency=top_commands,
         total_unique_commands=len(command_frequency),
         remaining_command_count=remaining_command_count,
         timeline=timeline,
         timeline_max=timeline_max,
+        first_seen_display=format_human_datetime(profile.get("first_seen")),
+        last_seen_display=format_human_datetime(profile.get("last_seen")),
+        timeline_activity_text=timeline_activity_text,
+        timeline_range_text=timeline_range_text,
         sessions=page_rows,
         total_count=total_count,
         page=current_page,
