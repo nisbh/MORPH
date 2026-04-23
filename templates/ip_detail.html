@@ -3,10 +3,19 @@
 
 {% block content %}
 <style>
+    .section-stack {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
     .detail-top {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: 1fr 1fr;
         gap: 16px;
+    }
+
+    .detail-top > * {
+        min-width: 0;
     }
 
     .stat-grid {
@@ -122,6 +131,7 @@
         padding: 12px;
         display: grid;
         gap: 10px;
+        overflow: hidden;
     }
 
     .breakdown-item {
@@ -138,8 +148,19 @@
         font-size: 0.82rem;
     }
 
+    .breakdown-head span:first-child {
+        min-width: 0;
+    }
+
+    .breakdown-head span:last-child {
+        flex-shrink: 0;
+    }
+
     .commands-table td:first-child {
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        word-break: break-all;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
     }
 
     .pagination-row {
@@ -151,8 +172,13 @@
     }
 
     @media (max-width: 1080px) {
-        .detail-top,
         .breakdown-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .detail-top {
             grid-template-columns: 1fr;
         }
     }
