@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}IP Intelligence - MORPH{% endblock %}
+
+{% block content %}
+<style>
+    .intel-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .intel-summary-card {
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        border-radius: 10px;
+        background: rgba(13, 17, 23, 0.45);
+        padding: 14px;
+        display: grid;
+        gap: 8px;
+    }
+
+    .intel-label {
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 600;
+    }
+
+    .intel-value {
+        color: var(--text);
+        font-size: 1.2rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+
+    .sortable:hover {
+        color: var(--text);
+    }
+
+    .sort-indicator {
+        margin-left: 6px;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+    }
+
+    .country-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .country-flag {
+        min-width: 18px;
+        text-align: center;
+    }
+
+    .org-cell {
+        max-width: 260px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .actions-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    @media (max-width: 1080px) {
+        .intel-summary-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 720px) {
+        .intel-summary-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .actions-row {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+</style>
+
+<div class="section-stack">
+    <div class="card-header">
+        <div>
+            <h1>IP Intelligence</h1>
+            <p class="subtle">Attacker profiles built from session history</p>
+        </div>
+    </div>
+
+    <section class="card" aria-label="Summary">
+        <div class="actions-row">
+            <div class="subtle">Profile aggregation cache TTL: 60 seconds</div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <button id="enrich-all" class="btn" type="button">Enrich All IPs</button>
+                <span id="enrich-status" class="subtle">{% if enrichment_in_progress %}Enrichment in progress...{% else %}Idle{% endif %}</span>
+            </div>
+        </div>
+
+        <div class="intel-summary-grid">
+            <article class="intel-summary-card">
+                <span class="intel-label">Total Unique IPs Tracked</span>
+                <span class="intel-value">{{ intelligence_summary.total_unique_ips }}</span>
+            </article>
+            <article class="intel-summary-card">
+                <span class="intel-label">IPs With OSINT Data</span>
+                <span class="intel-value">{{ intelligence_summary.ips_with_osint }}</span>
+            </article>
+            <article class="intel-summary-card">
+                <span class="intel-label">Most Active IP</span>
+                <span class="intel-value">{{ intelligence_summary.most_active_ip }} ({{ intelligence_summary.most_active_sessions }})</span>
+            </article>
+            <article class="intel-summary-card">
+                <span class="intel-label">Most Dangerous IP</span>
+                <span class="intel-value">{{ intelligence_summary.most_dangerous_ip }} ({{ intelligence_summary.most_dangerous_high }} high)</span>
+            </article>
+        </div>
+    </section>
+
+    <section class="card" aria-label="IP Profiles">
+        {% if profiles %}
+        <div class="table-wrap">
+            <table id="intel-table">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-sort-key="ip" data-sort-type="text">IP <span class="sort-indicator"></span></th>
+                        <th class="sortable" data-sort-key="country" data-sort-type="text">Country <span class="sort-indicator"></span></th>
+                        <th class="sortable" data-sort-key="org" data-sort-type="text">Org/ASN <span class="sort-indicator"></span></th>
+                        <th class="sortable" data-sort-key="sessions" data-sort-type="number">Sessions <span class="sort-indicator"></span></th>
+                        <th>Primary Type</th>
+                        <th>Top Intent</th>
+                        <th class="sortable" data-sort-key="risk" data-sort-type="risk">Highest Risk <span class="sort-indicator"></span></th>
+                        <th class="sortable" data-sort-key="first" data-sort-type="date">First Seen <span class="sort-indicator"></span></th>
+                        <th class="sortable" data-sort-key="last" data-sort-type="date">Last Seen <span class="sort-indicator"></span></th>
+                        <th>View</th>
+                    </tr>
+                </thead>
+                <tbody id="intel-table-body">
+                    {% for profile in profiles %}
+                    {% set osint = profile.osint or {} %}
+                    <tr
+                        data-ip="{{ profile.ip }}"
+                        data-country="{{ osint.country or '' }}"
+                        data-org="{{ osint.org or '' }}"
+                        data-sessions="{{ profile.total_sessions or 0 }}"
+                        data-risk="{{ profile.highest_risk or '' }}"
+                        data-first="{{ profile.first_seen or '' }}"
+                        data-last="{{ profile.last_seen or '' }}"
+                    >
+                        <td>{{ profile.ip }}</td>
+                        <td>
+                            <span class="country-cell">
+                                <span class="country-flag">{{ osint.country_flag or '' }}</span>
+                                <span>{{ osint.country or 'Unknown' }}</span>
+                            </span>
+                        </td>
+                        <td><span class="org-cell">{{ osint.org or 'Unknown' }}</span></td>
+                        <td>{{ profile.total_sessions or 0 }}</td>
+                        <td><span class="badge badge-{{ profile.primary_type if profile.primary_type in ['bot', 'human'] else 'human' }}">{{ profile.primary_type or 'unknown' }}</span></td>
+                        <td><span class="badge badge-{{ profile.primary_intent if profile.primary_intent in ['recon', 'exploit', 'persistence'] else 'recon' }}">{{ profile.primary_intent or 'unknown' }}</span></td>
+                        <td><span class="badge badge-{{ profile.highest_risk if profile.highest_risk in ['low', 'medium', 'high'] else 'low' }}">{{ profile.highest_risk or 'unknown' }}</span></td>
+                        <td>{{ (profile.first_seen or '')[:19] or '-' }}</td>
+                        <td>{{ (profile.last_seen or '')[:19] or '-' }}</td>
+                        <td><a class="btn ghost" href="{{ url_for('intelligence_detail', ip=profile.ip) }}">View</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>No IP profiles available yet.</p>
+            <p>Profiles are generated from existing dossier history.</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+<script>
+    (function () {
+        const tableBody = document.getElementById("intel-table-body");
+        const headers = Array.from(document.querySelectorAll("th.sortable"));
+        const enrichButton = document.getElementById("enrich-all");
+        const statusEl = document.getElementById("enrich-status");
+        const riskOrder = { low: 1, medium: 2, high: 3 };
+
+        function parseValue(raw, type) {
+            if (type === "number") {
+                return Number(raw) || 0;
+            }
+            if (type === "date") {
+                const ts = Date.parse(raw || "");
+                return Number.isNaN(ts) ? 0 : ts;
+            }
+            if (type === "risk") {
+                return riskOrder[(raw || "").toLowerCase()] || 0;
+            }
+            return (raw || "").toLowerCase();
+        }
+
+        headers.forEach((header) => {
+            header.addEventListener("click", () => {
+                if (!tableBody) {
+                    return;
+                }
+
+                const key = header.dataset.sortKey;
+                const sortType = header.dataset.sortType;
+                const current = header.dataset.order === "asc" ? "asc" : "desc";
+                const next = current === "asc" ? "desc" : "asc";
+                header.dataset.order = next;
+
+                headers.forEach((other) => {
+                    if (other !== header) {
+                        other.dataset.order = "";
+                    }
+                    const indicator = other.querySelector(".sort-indicator");
+                    if (indicator) {
+                        indicator.textContent = other === header ? (next === "asc" ? "▲" : "▼") : "";
+                    }
+                });
+
+                const rows = Array.from(tableBody.querySelectorAll("tr"));
+                rows.sort((a, b) => {
+                    const aVal = parseValue(a.dataset[key], sortType);
+                    const bVal = parseValue(b.dataset[key], sortType);
+
+                    if (aVal < bVal) {
+                        return next === "asc" ? -1 : 1;
+                    }
+                    if (aVal > bVal) {
+                        return next === "asc" ? 1 : -1;
+                    }
+                    return 0;
+                });
+
+                rows.forEach((row) => tableBody.appendChild(row));
+            });
+        });
+
+        if (enrichButton) {
+            enrichButton.addEventListener("click", async () => {
+                enrichButton.disabled = true;
+                statusEl.textContent = "Starting enrichment...";
+
+                try {
+                    const response = await fetch("/intelligence/enrich", { method: "POST" });
+                    const payload = await response.json();
+                    statusEl.textContent = `Enrichment started for ${payload.count} IPs`;
+                } catch (_error) {
+                    statusEl.textContent = "Failed to start enrichment";
+                } finally {
+                    setTimeout(() => {
+                        enrichButton.disabled = false;
+                    }, 1500);
+                }
+            });
+        }
+    }());
+</script>
+{% endblock %}

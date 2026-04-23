@@ -7,21 +7,25 @@ Dashboard for viewing honeypot sessions, classifications, and live logs.
 
 from __future__ import annotations
 
-from flask import Flask, render_template, abort, request
-from pathlib import Path
 from collections import Counter, deque
 from datetime import datetime, timezone
 from math import ceil
+from pathlib import Path
+import threading
 import time
 from typing import Any
 
+from flask import Flask, abort, jsonify, render_template, request
+
 from dossier import load, load_all
+from ip_profiles import build_ip_profiles, enrich_ip_profiles, load_ip_profiles
 
 app = Flask(__name__)
 
 DECEPTION_LOG = "morph/deception.log"
 CACHE_TTL_SECONDS = 60
 SESSIONS_PER_PAGE = 50
+IP_DETAIL_SESSIONS_PER_PAGE = 20
 
 _summary_cache: dict[str, Any] | None = None
 _cache_time = 0
@@ -31,8 +35,15 @@ _dashboard_cache_time = 0
 
 _sessions_cache: list[dict[str, Any]] | None = None
 _sessions_cache_time = 0
+_dossiers_cache: list[dict[str, Any]] | None = None
 
 _total_sessions_count_cache = 0
+
+_ip_profiles_cache: dict[str, dict[str, Any]] | None = None
+_ip_profiles_cache_time = 0
+
+_enrichment_lock = threading.Lock()
+_enrichment_in_progress = False
 
 
 def parse_iso_datetime(value: str | None) -> datetime | None:
@@ -112,13 +123,15 @@ def _normalize_session_row(dossier: dict[str, Any]) -> dict[str, Any]:
 
 def _refresh_sessions_cache() -> None:
     """Refresh the in-memory dossier/session cache from disk."""
-    global _sessions_cache, _sessions_cache_time, _total_sessions_count_cache
+    global _sessions_cache, _sessions_cache_time, _total_sessions_count_cache, _dossiers_cache
     global _summary_cache, _cache_time, _dashboard_cache, _dashboard_cache_time
+    global _ip_profiles_cache, _ip_profiles_cache_time
 
     dossiers = load_all()
     rows = [_normalize_session_row(d) for d in dossiers]
     rows.sort(key=lambda row: row.get("sort_ts", 0), reverse=True)
 
+    _dossiers_cache = dossiers
     _sessions_cache = rows
     _total_sessions_count_cache = len(rows)
     _sessions_cache_time = time.time()
@@ -128,6 +141,15 @@ def _refresh_sessions_cache() -> None:
     _cache_time = 0
     _dashboard_cache = None
     _dashboard_cache_time = 0
+    _ip_profiles_cache = None
+    _ip_profiles_cache_time = 0
+
+
+def get_cached_dossiers() -> list[dict[str, Any]]:
+    """Return cached dossiers, refreshing from disk at most once per TTL."""
+    if _dossiers_cache is None or _cache_expired(_sessions_cache_time):
+        _refresh_sessions_cache()
+    return _dossiers_cache or []
 
 
 def get_cached_sessions_rows() -> list[dict[str, Any]]:
@@ -254,6 +276,74 @@ def get_cached_dashboard_data() -> dict[str, Any]:
         "recent": [],
         "recent_activity": [],
     }
+
+
+def _merge_osint_into_profiles(
+    profiles: dict[str, dict[str, Any]],
+    saved_profiles: dict[str, dict[str, Any]],
+) -> None:
+    """Merge persisted OSINT data into freshly built profiles by IP."""
+    for ip, saved_profile in saved_profiles.items():
+        if ip not in profiles:
+            continue
+        saved_osint = saved_profile.get("osint") or {}
+        if saved_osint and not (profiles[ip].get("osint") or {}):
+            profiles[ip]["osint"] = saved_osint
+
+
+def get_cached_ip_profiles(force_refresh: bool = False) -> dict[str, dict[str, Any]]:
+    """Return cached IP intelligence profiles built from cached dossiers."""
+    global _ip_profiles_cache, _ip_profiles_cache_time
+
+    if force_refresh or _ip_profiles_cache is None or _cache_expired(_ip_profiles_cache_time):
+        dossiers = get_cached_dossiers()
+        profiles = build_ip_profiles(dossiers)
+        saved_profiles = load_ip_profiles()
+        _merge_osint_into_profiles(profiles, saved_profiles)
+
+        _ip_profiles_cache = profiles
+        _ip_profiles_cache_time = time.time()
+
+    return _ip_profiles_cache or {}
+
+
+def _profile_danger_tuple(profile: dict[str, Any]) -> tuple[int, int, int, int]:
+    """Sort helper for selecting the most dangerous profile."""
+    risk = profile.get("risk_breakdown") or {}
+    return (
+        int(risk.get("high", 0)),
+        int(risk.get("medium", 0)),
+        int(risk.get("low", 0)),
+        int(profile.get("total_sessions", 0)),
+    )
+
+
+def _build_ip_timeline(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build a per-day session timeline for one IP profile."""
+    timeline_counts = Counter()
+    for row in rows:
+        generated_dt = row.get("generated_dt")
+        if generated_dt:
+            timeline_counts[generated_dt.strftime("%Y-%m-%d")] += 1
+
+    return [
+        {"date": day, "sessions": timeline_counts[day]}
+        for day in sorted(timeline_counts.keys())
+    ]
+
+
+def _run_ip_enrichment_background() -> None:
+    """Background worker for enriching cached profiles."""
+    global _ip_profiles_cache, _ip_profiles_cache_time, _enrichment_in_progress
+
+    try:
+        profiles = get_cached_ip_profiles(force_refresh=True)
+        enriched = enrich_ip_profiles(profiles)
+        _ip_profiles_cache = enriched
+        _ip_profiles_cache_time = time.time()
+    finally:
+        with _enrichment_lock:
+            _enrichment_in_progress = False
 
 
 def _sanitize_filter(value: str | None, allowed: set[str]) -> str:
@@ -398,6 +488,99 @@ def sessions():
             "intent": intent_filter,
         },
     )
+
+
+@app.route("/intelligence")
+def intelligence():
+    """Aggregated attacker IP intelligence profiles."""
+    profiles_map = get_cached_ip_profiles()
+    profiles = sorted(
+        profiles_map.values(),
+        key=lambda p: (int(p.get("total_sessions", 0)), str(p.get("last_seen", ""))),
+        reverse=True,
+    )
+
+    ips_with_osint = sum(1 for profile in profiles if profile.get("osint"))
+    most_active = profiles[0] if profiles else None
+    most_dangerous = max(profiles, key=_profile_danger_tuple) if profiles else None
+
+    with _enrichment_lock:
+        enriching = _enrichment_in_progress
+
+    return render_template(
+        "intelligence.html",
+        profiles=profiles,
+        intelligence_summary={
+            "total_unique_ips": len(profiles),
+            "ips_with_osint": ips_with_osint,
+            "most_active_ip": most_active.get("ip") if most_active else "-",
+            "most_active_sessions": int(most_active.get("total_sessions", 0)) if most_active else 0,
+            "most_dangerous_ip": most_dangerous.get("ip") if most_dangerous else "-",
+            "most_dangerous_high": int((most_dangerous.get("risk_breakdown") or {}).get("high", 0)) if most_dangerous else 0,
+        },
+        enrichment_in_progress=enriching,
+    )
+
+
+@app.route("/intelligence/<ip>")
+def intelligence_detail(ip: str):
+    """Detailed view for one attacker IP profile."""
+    profiles_map = get_cached_ip_profiles()
+    profile = profiles_map.get(ip)
+    if not profile:
+        abort(404)
+
+    page = request.args.get("page", default=1, type=int) or 1
+    ip_rows = [
+        row for row in get_cached_sessions_rows()
+        if (row.get("session", {}).get("src_ip") or "Unknown") == ip
+    ]
+
+    page_rows, total_count, total_pages, current_page = _paginate_rows(
+        ip_rows,
+        page,
+        IP_DETAIL_SESSIONS_PER_PAGE,
+    )
+
+    command_frequency = sorted(
+        (profile.get("command_frequency") or {}).items(),
+        key=lambda item: (-int(item[1]), item[0]),
+    )
+    timeline = _build_ip_timeline(ip_rows)
+    timeline_max = max((point["sessions"] for point in timeline), default=1)
+
+    return render_template(
+        "ip_detail.html",
+        profile=profile,
+        command_frequency=command_frequency,
+        timeline=timeline,
+        timeline_max=timeline_max,
+        sessions=page_rows,
+        total_count=total_count,
+        page=current_page,
+        total_pages=total_pages,
+        has_prev=current_page > 1,
+        has_next=current_page < total_pages,
+        prev_page=current_page - 1,
+        next_page=current_page + 1,
+    )
+
+
+@app.route("/intelligence/enrich", methods=["POST"])
+def intelligence_enrich():
+    """Trigger background OSINT enrichment for all tracked IP profiles."""
+    global _enrichment_in_progress
+
+    profiles = get_cached_ip_profiles()
+    pending_count = sum(1 for profile in profiles.values() if not (profile.get("osint") or {}))
+
+    with _enrichment_lock:
+        if not _enrichment_in_progress:
+            _enrichment_in_progress = True
+            worker = threading.Thread(target=_run_ip_enrichment_background, daemon=True)
+            worker.start()
+
+    return jsonify({"status": "enriching", "count": pending_count})
 
 
 @app.route("/dossier/<session_id>")

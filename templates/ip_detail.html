@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+{% block title %}IP Detail: {{ profile.ip }} - MORPH{% endblock %}
+
+{% block content %}
+<style>
+    .detail-top {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+    }
+
+    .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .stat-box {
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        border-radius: 10px;
+        background: rgba(13, 17, 23, 0.45);
+        padding: 12px;
+        display: grid;
+        gap: 6px;
+    }
+
+    .stat-label {
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 600;
+    }
+
+    .stat-value {
+        color: var(--text);
+        font-size: 1.15rem;
+        font-weight: 700;
+    }
+
+    .timeline-grid {
+        display: grid;
+        gap: 8px;
+    }
+
+    .timeline-row {
+        display: grid;
+        grid-template-columns: 110px minmax(0, 1fr) 40px;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .timeline-date {
+        color: var(--text-secondary);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: 0.82rem;
+    }
+
+    .mini-track {
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: #0f141b;
+        border: 1px solid rgba(48, 54, 61, 0.8);
+    }
+
+    .mini-fill {
+        height: 100%;
+        background: var(--accent);
+    }
+
+    .mini-fill.bot {
+        background: var(--bot);
+    }
+
+    .mini-fill.intent {
+        background: var(--warning);
+    }
+
+    .mini-fill.risk {
+        background: var(--danger);
+    }
+
+    .breakdown-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .breakdown-card {
+        border: 1px solid rgba(48, 54, 61, 0.8);
+        border-radius: 10px;
+        background: rgba(13, 17, 23, 0.45);
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+    }
+
+    .breakdown-item {
+        display: grid;
+        gap: 6px;
+    }
+
+    .breakdown-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+    }
+
+    .commands-table td:first-child {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .pagination-row {
+        margin-top: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+
+    @media (max-width: 1080px) {
+        .detail-top,
+        .breakdown-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 720px) {
+        .stat-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .timeline-row {
+            grid-template-columns: 1fr;
+            gap: 4px;
+        }
+    }
+</style>
+
+{% set osint = profile.osint or {} %}
+{% set total_sessions = profile.total_sessions or 0 %}
+{% set type_breakdown = profile.type_breakdown or {} %}
+{% set intent_breakdown = profile.intent_breakdown or {} %}
+{% set risk_breakdown = profile.risk_breakdown or {} %}
+
+<div class="section-stack">
+    <div class="card-header">
+        <div>
+            <h1>IP Intelligence: {{ profile.ip }}</h1>
+            <p class="subtle">Aggregated attacker profile and session behavior</p>
+        </div>
+        <a href="/intelligence" class="btn ghost">Back to Intelligence</a>
+    </div>
+
+    <section class="detail-top" aria-label="OSINT and Statistics">
+        <article class="card">
+            <div class="card-header">
+                <h2>OSINT</h2>
+                <span class="subtle">Source: ipinfo.io</span>
+            </div>
+            <div class="kv-grid">
+                <span class="kv-label">Country</span>
+                <span>{{ osint.country_flag or '' }} {{ osint.country or 'Unknown' }}</span>
+
+                <span class="kv-label">City</span>
+                <span>{{ osint.city or 'Unknown' }}</span>
+
+                <span class="kv-label">Region</span>
+                <span>{{ osint.region or 'Unknown' }}</span>
+
+                <span class="kv-label">Organization</span>
+                <span>{{ osint.org or 'Unknown' }}</span>
+
+                <span class="kv-label">Timezone</span>
+                <span>{{ osint.timezone or 'Unknown' }}</span>
+
+                <span class="kv-label">Hostname</span>
+                <span>{{ osint.hostname or 'Unknown' }}</span>
+            </div>
+        </article>
+
+        <article class="card">
+            <div class="card-header">
+                <h2>Attack Statistics</h2>
+                <span class="subtle">{{ total_sessions }} sessions</span>
+            </div>
+            <div class="stat-grid">
+                <div class="stat-box">
+                    <span class="stat-label">Primary Type</span>
+                    <span class="stat-value">{{ profile.primary_type or 'unknown' }}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Primary Intent</span>
+                    <span class="stat-value">{{ profile.primary_intent or 'unknown' }}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Highest Risk</span>
+                    <span class="stat-value">{{ profile.highest_risk or 'unknown' }}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Total Commands</span>
+                    <span class="stat-value">{{ profile.total_commands or 0 }}</span>
+                </div>
+            </div>
+        </article>
+    </section>
+
+    <section class="card" aria-label="Attack Timeline">
+        <div class="card-header">
+            <h2>Attack Timeline</h2>
+            <span class="subtle">First seen {{ (profile.first_seen or '')[:19] or '-' }} | Last seen {{ (profile.last_seen or '')[:19] or '-' }}</span>
+        </div>
+
+        {% if timeline %}
+        <div class="timeline-grid">
+            {% for point in timeline %}
+            {% set width = ((point.sessions / timeline_max) * 100) if timeline_max else 0 %}
+            <div class="timeline-row">
+                <span class="timeline-date">{{ point.date }}</span>
+                <div class="mini-track"><div class="mini-fill" style="width: {{ '%.2f'|format(width) }}%;"></div></div>
+                <span class="subtle">{{ point.sessions }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted">No timeline data available for this IP.</p>
+        {% endif %}
+    </section>
+
+    <section class="breakdown-grid" aria-label="Distributions">
+        <article class="breakdown-card">
+            <h2>Type Distribution</h2>
+            {% for key, label in [('bot', 'Bot'), ('human', 'Human')] %}
+            {% set count = type_breakdown.get(key, 0) %}
+            {% set pct = ((count / total_sessions) * 100) if total_sessions else 0 %}
+            <div class="breakdown-item">
+                <div class="breakdown-head">
+                    <span>{{ label }}</span>
+                    <span>{{ count }} ({{ '%.1f'|format(pct) }}%)</span>
+                </div>
+                <div class="mini-track"><div class="mini-fill bot" style="width: {{ '%.2f'|format(pct) }}%;"></div></div>
+            </div>
+            {% endfor %}
+        </article>
+
+        <article class="breakdown-card">
+            <h2>Intent Distribution</h2>
+            {% for key, label in [('recon', 'Recon'), ('exploit', 'Exploit'), ('persistence', 'Persistence')] %}
+            {% set count = intent_breakdown.get(key, 0) %}
+            {% set pct = ((count / total_sessions) * 100) if total_sessions else 0 %}
+            <div class="breakdown-item">
+                <div class="breakdown-head">
+                    <span>{{ label }}</span>
+                    <span>{{ count }} ({{ '%.1f'|format(pct) }}%)</span>
+                </div>
+                <div class="mini-track"><div class="mini-fill intent" style="width: {{ '%.2f'|format(pct) }}%;"></div></div>
+            </div>
+            {% endfor %}
+        </article>
+
+        <article class="breakdown-card">
+            <h2>Risk Distribution</h2>
+            {% for key, label in [('low', 'Low'), ('medium', 'Medium'), ('high', 'High')] %}
+            {% set count = risk_breakdown.get(key, 0) %}
+            {% set pct = ((count / total_sessions) * 100) if total_sessions else 0 %}
+            <div class="breakdown-item">
+                <div class="breakdown-head">
+                    <span>{{ label }}</span>
+                    <span>{{ count }} ({{ '%.1f'|format(pct) }}%)</span>
+                </div>
+                <div class="mini-track"><div class="mini-fill risk" style="width: {{ '%.2f'|format(pct) }}%;"></div></div>
+            </div>
+            {% endfor %}
+        </article>
+    </section>
+
+    <section class="card" aria-label="Commands">
+        <div class="card-header">
+            <h2>Commands</h2>
+            <span class="subtle">{{ command_frequency|length }} unique commands</span>
+        </div>
+
+        {% if command_frequency %}
+        <div class="table-wrap">
+            <table class="commands-table">
+                <thead>
+                    <tr>
+                        <th>Command</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for command, count in command_frequency %}
+                    <tr>
+                        <td>{{ command }}</td>
+                        <td>{{ count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="muted">No commands recorded for this IP.</p>
+        {% endif %}
+    </section>
+
+    <section class="card" aria-label="Sessions">
+        <div class="card-header">
+            <h2>Sessions</h2>
+            <span class="subtle">{{ total_count }} total | page {{ page }} of {{ total_pages }}</span>
+        </div>
+
+        {% if sessions %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Session ID</th>
+                        <th>IP</th>
+                        <th>Duration</th>
+                        <th>Commands</th>
+                        <th>Type</th>
+                        <th>Intent</th>
+                        <th>Risk</th>
+                        <th>View</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in sessions %}
+                    {% set s = item.session %}
+                    {% set c = item.classification %}
+                    <tr>
+                        <td>{{ s.session_id[:12] }}{% if s.session_id|length > 12 %}...{% endif %}</td>
+                        <td>{{ s.src_ip or 'Unknown' }}</td>
+                        <td>{{ '%.1f'|format(s.duration_seconds or 0) }}s</td>
+                        <td>{{ s.commands|length }}</td>
+                        <td><span class="badge badge-{{ c.type if c.type in ['bot', 'human'] else 'human' }}">{{ c.type or 'unknown' }}</span></td>
+                        <td><span class="badge badge-{{ c.intent if c.intent in ['recon', 'exploit', 'persistence'] else 'recon' }}">{{ c.intent or 'unknown' }}</span></td>
+                        <td><span class="badge badge-{{ c.risk if c.risk in ['low', 'medium', 'high'] else 'low' }}">{{ c.risk or 'unknown' }}</span></td>
+                        <td><a href="/dossier/{{ s.session_id }}" class="btn ghost">View</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="muted">No sessions available for this IP.</p>
+        {% endif %}
+
+        <div class="pagination-row">
+            {% if has_prev %}
+            <a class="btn ghost" href="{{ url_for('intelligence_detail', ip=profile.ip, page=prev_page) }}">Previous</a>
+            {% else %}
+            <span class="btn ghost disabled">Previous</span>
+            {% endif %}
+
+            {% if has_next %}
+            <a class="btn ghost" href="{{ url_for('intelligence_detail', ip=profile.ip, page=next_page) }}">Next</a>
+            {% else %}
+            <span class="btn ghost disabled">Next</span>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}
