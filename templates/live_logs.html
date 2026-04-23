@@ -40,31 +40,12 @@
         background: var(--accent);
     }
 
-    .refresh-dot {
-        display: inline-flex;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--success);
-        margin-right: 6px;
-        animation: pulse 1.6s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-        0%,
-        100% {
-            opacity: 0.45;
-        }
-        50% {
-            opacity: 1;
-        }
-    }
 </style>
 
 <div class="section-stack">
     <div class="card-header">
         <h1>Live Deception Logs</h1>
-        <span class="subtle"><span class="refresh-dot" aria-hidden="true"></span>Auto-refresh every 3s</span>
+        <span class="subtle">Auto-refresh every 3s</span>
     </div>
 
     <section class="card">

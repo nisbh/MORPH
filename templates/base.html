@@ -53,7 +53,8 @@
         .topbar-inner {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 16px 24px;
+            min-height: 52px;
+            padding: 0 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -74,30 +75,36 @@
 
         .nav-links {
             display: flex;
-            align-items: center;
-            gap: 8px;
+            align-items: stretch;
+            gap: 6px;
+            min-height: 52px;
         }
 
         .nav-link {
             color: var(--text-secondary);
             text-decoration: none;
             font-weight: 500;
+            font-size: 15px;
             border: 1px solid transparent;
-            border-radius: 999px;
-            padding: 8px 14px;
-            transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+            border-bottom: 2px solid transparent;
+            border-radius: 8px 8px 0 0;
+            padding: 0 14px;
+            display: inline-flex;
+            align-items: center;
+            transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease, border-bottom-color 120ms ease;
         }
 
         .nav-link:hover {
-            color: var(--text);
-            background: rgba(88, 166, 255, 0.08);
-            border-color: rgba(88, 166, 255, 0.2);
+            color: #d8e2ee;
+            background: rgba(88, 166, 255, 0.14);
+            border-color: rgba(88, 166, 255, 0.28);
         }
 
         .nav-link.active {
-            color: var(--text);
-            background: rgba(88, 166, 255, 0.14);
-            border-color: rgba(88, 166, 255, 0.34);
+            color: #f6fbff;
+            background: rgba(88, 166, 255, 0.18);
+            border-color: rgba(88, 166, 255, 0.35);
+            border-bottom-color: var(--accent);
         }
 
         main {
@@ -535,6 +542,13 @@
                 width: 100%;
                 justify-content: flex-start;
                 flex-wrap: wrap;
+                min-height: auto;
+            }
+
+            .nav-link {
+                border-bottom-width: 1px;
+                border-radius: 8px;
+                padding: 8px 12px;
             }
 
             .topbar-inner {

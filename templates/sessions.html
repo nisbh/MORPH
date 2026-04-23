@@ -5,7 +5,7 @@
 <style>
     .controls-row {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(200px, 1fr) auto;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
         gap: 12px;
         align-items: end;
     }
@@ -23,7 +23,8 @@
         letter-spacing: 0.06em;
     }
 
-    .results-row {
+    .results-row,
+    .pagination-row {
         margin-top: 10px;
         display: flex;
         align-items: center;
@@ -31,12 +32,21 @@
         gap: 12px;
     }
 
+    .pagination-row {
+        margin-top: 0;
+    }
+
     .sessions-table thead th {
         padding: 10px 12px;
     }
 
     .sessions-table tbody td {
-        padding: 9px 12px;
+        padding: 8px 12px;
+    }
+
+    .btn.disabled {
+        opacity: 0.55;
+        pointer-events: none;
     }
 
     @media (max-width: 1220px) {
@@ -55,60 +65,52 @@
 <div class="section-stack">
     <div class="card-header">
         <h1>Sessions</h1>
-        <span class="subtle">Browse and filter captured interactions</span>
+        <span class="subtle">Server-side filtered dossier index</span>
     </div>
 
-    {% if sessions %}
     <section aria-label="Session Controls">
-        <div class="controls-row">
+        <form method="get" action="/sessions" class="controls-row">
             <div class="control-group">
                 <label class="control-label" for="filter-type">Filter by Type</label>
-                <select id="filter-type" class="select">
-                    <option value="all">All</option>
-                    <option value="bot">Bot</option>
-                    <option value="human">Human</option>
+                <select id="filter-type" name="type" class="select">
+                    <option value="" {% if not filters.type %}selected{% endif %}>All</option>
+                    <option value="bot" {% if filters.type == 'bot' %}selected{% endif %}>Bot</option>
+                    <option value="human" {% if filters.type == 'human' %}selected{% endif %}>Human</option>
                 </select>
             </div>
             <div class="control-group">
                 <label class="control-label" for="filter-risk">Filter by Risk</label>
-                <select id="filter-risk" class="select">
-                    <option value="all">All</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
+                <select id="filter-risk" name="risk" class="select">
+                    <option value="" {% if not filters.risk %}selected{% endif %}>All</option>
+                    <option value="low" {% if filters.risk == 'low' %}selected{% endif %}>Low</option>
+                    <option value="medium" {% if filters.risk == 'medium' %}selected{% endif %}>Medium</option>
+                    <option value="high" {% if filters.risk == 'high' %}selected{% endif %}>High</option>
                 </select>
             </div>
             <div class="control-group">
                 <label class="control-label" for="filter-intent">Filter by Intent</label>
-                <select id="filter-intent" class="select">
-                    <option value="all">All</option>
-                    <option value="recon">Recon</option>
-                    <option value="exploit">Exploit</option>
-                    <option value="persistence">Persistence</option>
+                <select id="filter-intent" name="intent" class="select">
+                    <option value="" {% if not filters.intent %}selected{% endif %}>All</option>
+                    <option value="recon" {% if filters.intent == 'recon' %}selected{% endif %}>Recon</option>
+                    <option value="exploit" {% if filters.intent == 'exploit' %}selected{% endif %}>Exploit</option>
+                    <option value="persistence" {% if filters.intent == 'persistence' %}selected{% endif %}>Persistence</option>
                 </select>
             </div>
-            <div class="control-group">
-                <label class="control-label" for="sort-by">Sort by</label>
-                <select id="sort-by" class="select">
-                    <option value="recent">Most Recent</option>
-                    <option value="duration">Duration (longest first)</option>
-                    <option value="commands">Commands (most first)</option>
-                </select>
-            </div>
-            <div class="control-group">
-                <label class="control-label" for="session-count">Results</label>
-                <div id="session-count" class="input" style="display: flex; align-items: center;">0 results</div>
-            </div>
-            <button id="clear-filters" class="btn ghost" type="button">Clear Filters</button>
-        </div>
+            <button class="btn" type="submit">Apply Filters</button>
+            <a href="/sessions" class="btn ghost">Clear Filters</a>
+        </form>
 
         <div class="results-row">
-            <span class="subtle">Client-side filtering and sorting</span>
-            <span class="subtle">Click any row to open a dossier</span>
+            <span class="subtle">
+                {{ filtered_count }} results
+                {% if filtered_count != total_count %}(filtered from {{ total_count }}){% endif %}
+            </span>
+            <span class="subtle">Page {{ page }} of {{ total_pages }}</span>
         </div>
     </section>
 
     <section class="card">
+        {% if sessions %}
         <div class="table-wrap">
             <table class="sessions-table">
                 <thead>
@@ -127,16 +129,7 @@
                     {% for item in sessions %}
                     {% set s = item.session %}
                     {% set c = item.classification %}
-                    <tr
-                        class="row-clickable session-row"
-                        data-href="/dossier/{{ s.session_id }}"
-                        data-type="{{ (c.type or 'unknown')|lower }}"
-                        data-risk="{{ (c.risk or 'unknown')|lower }}"
-                        data-intent="{{ (c.intent or 'unknown')|lower }}"
-                        data-duration="{{ s.duration_seconds or 0 }}"
-                        data-commands="{{ s.commands|length }}"
-                        data-recent="{{ loop.index0 }}"
-                    >
+                    <tr class="row-clickable session-row" data-href="/dossier/{{ s.session_id }}">
                         <td>
                             <a href="/dossier/{{ s.session_id }}" class="link">
                                 {{ s.session_id[:12] }}{% if s.session_id|length > 12 %}...{% endif %}
@@ -154,98 +147,51 @@
                 </tbody>
             </table>
         </div>
-    </section>
-    {% else %}
-    <section class="card">
+        {% else %}
         <div class="empty-state">
-            <p>No sessions found.</p>
-            <p>Ensure the Cowrie log file exists at var/log/cowrie/cowrie.json.</p>
+            <p>No sessions found for the selected filters.</p>
+            <p>Try broadening the filter values or clear filters.</p>
         </div>
+        {% endif %}
     </section>
-    {% endif %}
+
+    <section class="pagination-row" aria-label="Pagination">
+        {% if has_prev %}
+        <a
+            class="btn ghost"
+            href="{{ url_for('sessions', page=prev_page, type=filters.type, risk=filters.risk, intent=filters.intent) }}"
+        >
+            Previous
+        </a>
+        {% else %}
+        <span class="btn ghost disabled">Previous</span>
+        {% endif %}
+
+        {% if has_next %}
+        <a
+            class="btn ghost"
+            href="{{ url_for('sessions', page=next_page, type=filters.type, risk=filters.risk, intent=filters.intent) }}"
+        >
+            Next
+        </a>
+        {% else %}
+        <span class="btn ghost disabled">Next</span>
+        {% endif %}
+    </section>
 </div>
 
-{% if sessions %}
 <script>
     (function () {
-        const typeFilter = document.getElementById("filter-type");
-        const riskFilter = document.getElementById("filter-risk");
-        const intentFilter = document.getElementById("filter-intent");
-        const sortBy = document.getElementById("sort-by");
-        const clearButton = document.getElementById("clear-filters");
-        const countEl = document.getElementById("session-count");
-        const tbody = document.getElementById("session-table-body");
         const rows = Array.from(document.querySelectorAll(".session-row"));
-
-        function passesFilters(row) {
-            if (typeFilter.value !== "all" && row.dataset.type !== typeFilter.value) {
-                return false;
-            }
-            if (riskFilter.value !== "all" && row.dataset.risk !== riskFilter.value) {
-                return false;
-            }
-            if (intentFilter.value !== "all" && row.dataset.intent !== intentFilter.value) {
-                return false;
-            }
-            return true;
-        }
-
-        function sortedRows(filteredRows) {
-            const selectedSort = sortBy.value;
-            return filteredRows.sort((a, b) => {
-                if (selectedSort === "duration") {
-                    return Number(b.dataset.duration) - Number(a.dataset.duration);
-                }
-                if (selectedSort === "commands") {
-                    return Number(b.dataset.commands) - Number(a.dataset.commands);
-                }
-                return Number(a.dataset.recent) - Number(b.dataset.recent);
-            });
-        }
-
-        function applyFiltersAndSort() {
-            const filtered = rows.filter(passesFilters);
-            const ordered = sortedRows(filtered);
-            const visibleSet = new Set(ordered);
-
-            ordered.forEach((row) => {
-                row.style.display = "";
-                tbody.appendChild(row);
-            });
-
-            rows.forEach((row) => {
-                if (!visibleSet.has(row)) {
-                    row.style.display = "none";
-                    tbody.appendChild(row);
-                }
-            });
-
-            countEl.textContent = `${ordered.length} results`;
-        }
 
         rows.forEach((row) => {
             row.addEventListener("click", (event) => {
-                if (event.target.closest("a, button, input, select")) {
+                if (event.target.closest("a, button, input, select, form")) {
                     return;
                 }
                 window.location.href = row.dataset.href;
             });
         });
-
-        [typeFilter, riskFilter, intentFilter, sortBy].forEach((control) => {
-            control.addEventListener("change", applyFiltersAndSort);
-        });
-
-        clearButton.addEventListener("click", () => {
-            typeFilter.value = "all";
-            riskFilter.value = "all";
-            intentFilter.value = "all";
-            sortBy.value = "recent";
-            applyFiltersAndSort();
-        });
-
-        applyFiltersAndSort();
     }());
 </script>
-{% endif %}
 {% endblock %}

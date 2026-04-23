@@ -5,18 +5,34 @@ MORPH - Flask Web UI
 Dashboard for viewing honeypot sessions, classifications, and live logs.
 """
 
-from flask import Flask, render_template, abort
+from __future__ import annotations
+
+from flask import Flask, render_template, abort, request
 from pathlib import Path
 from collections import Counter, deque
 from datetime import datetime, timezone
+from math import ceil
+import time
+from typing import Any
 
-from log_parser import parse_cowrie_log, COWRIE_LOG
-from classifier import classify_session
-from dossier import generate, load, load_all, summarize_all
+from dossier import load, load_all
 
 app = Flask(__name__)
 
 DECEPTION_LOG = "morph/deception.log"
+CACHE_TTL_SECONDS = 60
+SESSIONS_PER_PAGE = 50
+
+_summary_cache: dict[str, Any] | None = None
+_cache_time = 0
+
+_dashboard_cache: dict[str, Any] | None = None
+_dashboard_cache_time = 0
+
+_sessions_cache: list[dict[str, Any]] | None = None
+_sessions_cache_time = 0
+
+_total_sessions_count_cache = 0
 
 
 def parse_iso_datetime(value: str | None) -> datetime | None:
@@ -60,26 +76,224 @@ def format_time_ago(timestamp: datetime | None) -> str:
     return timestamp.strftime("%Y-%m-%d")
 
 
-def get_sessions_with_classification() -> list[dict]:
-    """Parse logs and classify all sessions."""
-    sessions = parse_cowrie_log(COWRIE_LOG)
-    results = []
-    
-    for session_id, session in sessions.items():
-        classification = classify_session(session)
-        # Generate/update dossier
-        generate(session, classification)
-        results.append({
-            "session": session,
-            "classification": classification,
-        })
-    
-    # Sort by start_time descending (most recent first)
-    results.sort(
-        key=lambda x: x["session"].get("start_time") or "",
-        reverse=True
-    )
-    return results
+def _cache_expired(cache_time: int | float) -> bool:
+    """Return True when cache entry is older than TTL."""
+    return (time.time() - float(cache_time)) > CACHE_TTL_SECONDS
+
+
+def _normalize_session_row(dossier: dict[str, Any]) -> dict[str, Any]:
+    """Convert a dossier object into a compact row used by dashboard/sessions."""
+    classification = dossier.get("classification") or {}
+    commands = dossier.get("commands") or []
+    downloads = dossier.get("downloads") or []
+
+    generated_dt = parse_iso_datetime(dossier.get("generated_at"))
+    if not generated_dt:
+        generated_dt = parse_iso_datetime(dossier.get("start_time"))
+
+    return {
+        "session": {
+            "session_id": dossier.get("session_id", "unknown"),
+            "src_ip": dossier.get("src_ip") or "Unknown",
+            "duration_seconds": dossier.get("duration_seconds") or 0,
+            "commands": commands,
+            "downloads": downloads,
+        },
+        "classification": {
+            "type": classification.get("type") or "unknown",
+            "intent": classification.get("intent") or "unknown",
+            "risk": classification.get("risk") or "unknown",
+        },
+        "generated_at": dossier.get("generated_at", ""),
+        "sort_ts": generated_dt.timestamp() if generated_dt else 0,
+        "generated_dt": generated_dt,
+    }
+
+
+def _refresh_sessions_cache() -> None:
+    """Refresh the in-memory dossier/session cache from disk."""
+    global _sessions_cache, _sessions_cache_time, _total_sessions_count_cache
+    global _summary_cache, _cache_time, _dashboard_cache, _dashboard_cache_time
+
+    dossiers = load_all()
+    rows = [_normalize_session_row(d) for d in dossiers]
+    rows.sort(key=lambda row: row.get("sort_ts", 0), reverse=True)
+
+    _sessions_cache = rows
+    _total_sessions_count_cache = len(rows)
+    _sessions_cache_time = time.time()
+
+    # Invalidate dependent caches so they stay aligned with refreshed session rows.
+    _summary_cache = None
+    _cache_time = 0
+    _dashboard_cache = None
+    _dashboard_cache_time = 0
+
+
+def get_cached_sessions_rows() -> list[dict[str, Any]]:
+    """Return cached session rows, refreshing at most once per TTL."""
+    if _sessions_cache is None or _cache_expired(_sessions_cache_time):
+        _refresh_sessions_cache()
+    return _sessions_cache or []
+
+
+def get_cached_total_sessions_count() -> int:
+    """Return the cached total number of sessions/dossiers."""
+    if _sessions_cache is None or _cache_expired(_sessions_cache_time):
+        _refresh_sessions_cache()
+    return _total_sessions_count_cache
+
+
+def _build_summary_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build summary stats from cached rows without touching disk."""
+    summary: dict[str, Any] = {
+        "total": len(rows),
+        "by_risk": {"low": 0, "medium": 0, "high": 0},
+        "by_type": {"bot": 0, "human": 0},
+        "by_intent": {"recon": 0, "exploit": 0, "persistence": 0},
+        "unique_ips": set(),
+        "total_commands": 0,
+        "total_downloads": 0,
+    }
+
+    for row in rows:
+        session = row.get("session") or {}
+        classification = row.get("classification") or {}
+
+        risk = str(classification.get("risk", "")).lower()
+        if risk in summary["by_risk"]:
+            summary["by_risk"][risk] += 1
+
+        session_type = str(classification.get("type", "")).lower()
+        if session_type in summary["by_type"]:
+            summary["by_type"][session_type] += 1
+
+        intent = str(classification.get("intent", "")).lower()
+        if intent in summary["by_intent"]:
+            summary["by_intent"][intent] += 1
+
+        src_ip = session.get("src_ip")
+        if src_ip:
+            summary["unique_ips"].add(src_ip)
+
+        summary["total_commands"] += len(session.get("commands") or [])
+        summary["total_downloads"] += len(session.get("downloads") or [])
+
+    summary["unique_ips"] = len(summary["unique_ips"])
+    return summary
+
+
+def get_cached_summary() -> dict[str, Any]:
+    """Return cached summarize_all equivalent for 60s TTL."""
+    global _summary_cache, _cache_time
+
+    if _summary_cache is None or _cache_expired(_cache_time):
+        rows = get_cached_sessions_rows()
+        _summary_cache = _build_summary_from_rows(rows)
+        _cache_time = time.time()
+
+    return _summary_cache or {
+        "total": 0,
+        "by_risk": {"low": 0, "medium": 0, "high": 0},
+        "by_type": {"bot": 0, "human": 0},
+        "by_intent": {"recon": 0, "exploit": 0, "persistence": 0},
+        "unique_ips": 0,
+        "total_commands": 0,
+        "total_downloads": 0,
+    }
+
+
+def get_cached_dashboard_data() -> dict[str, Any]:
+    """Return cached top IPs and recent activity for the dashboard."""
+    global _dashboard_cache, _dashboard_cache_time
+
+    if _dashboard_cache is None or _cache_expired(_dashboard_cache_time):
+        rows = get_cached_sessions_rows()
+
+        ip_counts = Counter()
+        for row in rows:
+            ip = row.get("session", {}).get("src_ip") or "Unknown"
+            ip_counts[ip] += 1
+
+        top_attacker_ips = [
+            {"ip": ip, "count": count}
+            for ip, count in ip_counts.most_common(5)
+        ]
+
+        recent_rows = rows[:5]
+        recent = [
+            {
+                "session_id": row.get("session", {}).get("session_id", "unknown"),
+                "src_ip": row.get("session", {}).get("src_ip") or "Unknown",
+                "duration_seconds": row.get("session", {}).get("duration_seconds") or 0,
+                "classification": row.get("classification") or {},
+                "generated_at": row.get("generated_at", ""),
+            }
+            for row in recent_rows
+        ]
+
+        recent_activity = [
+            {
+                "session_id": row.get("session", {}).get("session_id", "unknown"),
+                "src_ip": row.get("session", {}).get("src_ip") or "Unknown",
+                "type": row.get("classification", {}).get("type") or "unknown",
+                "time_ago": format_time_ago(row.get("generated_dt")),
+            }
+            for row in recent_rows
+        ]
+
+        _dashboard_cache = {
+            "top_attacker_ips": top_attacker_ips,
+            "recent": recent,
+            "recent_activity": recent_activity,
+        }
+        _dashboard_cache_time = time.time()
+
+    return _dashboard_cache or {
+        "top_attacker_ips": [],
+        "recent": [],
+        "recent_activity": [],
+    }
+
+
+def _sanitize_filter(value: str | None, allowed: set[str]) -> str:
+    """Normalize and validate query filters."""
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in allowed else ""
+
+
+def _filter_rows(
+    rows: list[dict[str, Any]],
+    type_filter: str,
+    risk_filter: str,
+    intent_filter: str,
+) -> list[dict[str, Any]]:
+    """Apply server-side filters to cached rows."""
+    filtered = rows
+
+    if type_filter:
+        filtered = [r for r in filtered if (r.get("classification", {}).get("type") or "").lower() == type_filter]
+    if risk_filter:
+        filtered = [r for r in filtered if (r.get("classification", {}).get("risk") or "").lower() == risk_filter]
+    if intent_filter:
+        filtered = [r for r in filtered if (r.get("classification", {}).get("intent") or "").lower() == intent_filter]
+
+    return filtered
+
+
+def _paginate_rows(
+    rows: list[dict[str, Any]],
+    page: int,
+    per_page: int,
+) -> tuple[list[dict[str, Any]], int, int, int]:
+    """Return page items and pagination metadata."""
+    total_count = len(rows)
+    total_pages = max(1, ceil(total_count / per_page))
+    current_page = max(1, min(page, total_pages))
+
+    start = (current_page - 1) * per_page
+    end = start + per_page
+    return rows[start:end], total_count, total_pages, current_page
 
 
 def read_log_tail(log_path: str, lines: int = 20) -> list[str]:
@@ -138,50 +352,52 @@ def parse_log_line(line: str) -> dict[str, str]:
 @app.route("/")
 def index():
     """Dashboard with summary statistics."""
-    summary = summarize_all()
-    dossiers = load_all()
+    summary = get_cached_summary()
+    dashboard_data = get_cached_dashboard_data()
 
-    ip_counts = Counter()
-    for dossier in dossiers:
-        ip = dossier.get("src_ip") or "Unknown"
-        ip_counts[ip] += 1
-    top_attacker_ips = [
-        {"ip": ip, "count": count}
-        for ip, count in ip_counts.most_common(5)
-    ]
-    
-    # Get recent dossiers (last 5)
-    recent = sorted(
-        dossiers,
-        key=lambda d: d.get("generated_at", ""),
-        reverse=True
-    )[:5]
-
-    recent_activity = []
-    for dossier in recent:
-        classification = dossier.get("classification") or {}
-        generated_dt = parse_iso_datetime(dossier.get("generated_at"))
-        recent_activity.append({
-            "session_id": dossier.get("session_id", "unknown"),
-            "src_ip": dossier.get("src_ip") or "Unknown",
-            "type": classification.get("type") or "unknown",
-            "time_ago": format_time_ago(generated_dt),
-        })
-    
     return render_template(
         "index.html",
         summary=summary,
-        recent=recent,
-        top_attacker_ips=top_attacker_ips,
-        recent_activity=recent_activity,
+        recent=dashboard_data["recent"],
+        top_attacker_ips=dashboard_data["top_attacker_ips"],
+        recent_activity=dashboard_data["recent_activity"],
     )
 
 
 @app.route("/sessions")
 def sessions():
-    """List all sessions with classifications."""
-    data = get_sessions_with_classification()
-    return render_template("sessions.html", sessions=data)
+    """List cached dossier sessions with server-side filtering and pagination."""
+    page = request.args.get("page", default=1, type=int) or 1
+    type_filter = _sanitize_filter(request.args.get("type"), {"bot", "human"})
+    risk_filter = _sanitize_filter(request.args.get("risk"), {"low", "medium", "high"})
+    intent_filter = _sanitize_filter(request.args.get("intent"), {"recon", "exploit", "persistence"})
+
+    all_rows = get_cached_sessions_rows()
+    filtered_rows = _filter_rows(all_rows, type_filter, risk_filter, intent_filter)
+
+    page_rows, filtered_count, total_pages, current_page = _paginate_rows(
+        filtered_rows,
+        page,
+        SESSIONS_PER_PAGE,
+    )
+
+    return render_template(
+        "sessions.html",
+        sessions=page_rows,
+        page=current_page,
+        total_pages=total_pages,
+        has_prev=current_page > 1,
+        has_next=current_page < total_pages,
+        prev_page=current_page - 1,
+        next_page=current_page + 1,
+        filtered_count=filtered_count,
+        total_count=get_cached_total_sessions_count(),
+        filters={
+            "type": type_filter,
+            "risk": risk_filter,
+            "intent": intent_filter,
+        },
+    )
 
 
 @app.route("/dossier/<session_id>")
@@ -202,7 +418,7 @@ def live_logs():
 @app.route("/about")
 def about():
     """Technical summary page for MORPH."""
-    summary = summarize_all()
+    summary = get_cached_summary()
     return render_template("about.html", summary=summary)
 
 
