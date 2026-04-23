@@ -699,9 +699,9 @@ def sessions():
         filter_counts=filter_counts,
         active_filter_tags=active_filter_tags,
         filter_query={
-            "type": _join_filter_values(type_filters),
-            "risk": _join_filter_values(risk_filters),
-            "intent": _join_filter_values(intent_filters),
+            "type": _join_filter_values(type_filters) or None,
+            "risk": _join_filter_values(risk_filters) or None,
+            "intent": _join_filter_values(intent_filters) or None,
         },
     )
 
@@ -804,14 +804,11 @@ def intelligence_detail(ip: str):
     timeline_activity_text = "Active for less than 1 day"
     timeline_range_text = "-"
     if first_seen_dt and last_seen_dt:
-        active_seconds = max(0, int((last_seen_dt - first_seen_dt).total_seconds()))
-        if active_seconds < 86400:
+        if first_seen_dt.date() == last_seen_dt.date():
             timeline_activity_text = "Active for less than 1 day"
         else:
-            active_days = active_seconds // 86400
-            if active_seconds % 86400:
-                active_days += 1
-            timeline_activity_text = f"Active for {active_days} day{'s' if active_days != 1 else ''}"
+            active_days = (last_seen_dt.date() - first_seen_dt.date()).days + 1
+            timeline_activity_text = f"Active for {active_days} days"
 
         timeline_range_text = f"{format_human_datetime(first_seen_dt)} to {format_human_datetime(last_seen_dt)}"
 
@@ -824,8 +821,6 @@ def intelligence_detail(ip: str):
         remaining_command_count=remaining_command_count,
         timeline=timeline,
         timeline_max=timeline_max,
-        first_seen_display=format_human_datetime(profile.get("first_seen")),
-        last_seen_display=format_human_datetime(profile.get("last_seen")),
         timeline_activity_text=timeline_activity_text,
         timeline_range_text=timeline_range_text,
         sessions=page_rows,

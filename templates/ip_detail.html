@@ -68,18 +68,45 @@
     .mini-fill {
         height: 100%;
         background: var(--accent);
+        width: 0;
     }
 
-    .mini-fill.bot {
-        background: var(--bot);
+    .mini-fill.type-bot {
+        background: #bc8cff;
     }
 
-    .mini-fill.intent {
-        background: var(--warning);
+    .mini-fill.type-human {
+        background: #3fb950;
     }
 
-    .mini-fill.risk {
-        background: var(--danger);
+    .mini-fill.intent-recon {
+        background: #58a6ff;
+    }
+
+    .mini-fill.intent-exploit {
+        background: #f85149;
+    }
+
+    .mini-fill.intent-persistence {
+        background: #a371f7;
+    }
+
+    .mini-fill.risk-low {
+        background: #3fb950;
+    }
+
+    .mini-fill.risk-medium {
+        background: #d29922;
+    }
+
+    .mini-fill.risk-high {
+        background: #f85149;
+    }
+
+    .timeline-summary {
+        margin-top: 12px;
+        display: grid;
+        gap: 4px;
     }
 
     .breakdown-grid {
@@ -163,6 +190,7 @@
                 <h2>OSINT</h2>
                 <span class="subtle">Source: ipinfo.io</span>
             </div>
+            {% if has_osint_data %}
             <div class="kv-grid">
                 <span class="kv-label">Country</span>
                 <span>{{ osint.country_flag or '' }} {{ osint.country or 'Unknown' }}</span>
@@ -182,29 +210,32 @@
                 <span class="kv-label">Hostname</span>
                 <span>{{ osint.hostname or 'Unknown' }}</span>
             </div>
+            {% else %}
+            <p class="muted">No OSINT data &mdash; click Enrich All IPs on the Intelligence page</p>
+            {% endif %}
         </article>
 
         <article class="card">
             <div class="card-header">
                 <h2>Attack Statistics</h2>
-                <span class="subtle">{{ total_sessions }} sessions</span>
+                <span class="subtle">{{ total_sessions|intcomma }} sessions</span>
             </div>
             <div class="stat-grid">
                 <div class="stat-box">
                     <span class="stat-label">Primary Type</span>
-                    <span class="stat-value">{{ profile.primary_type or 'unknown' }}</span>
+                    <span class="stat-value">{{ (profile.primary_type or 'unknown')|title }}</span>
                 </div>
                 <div class="stat-box">
                     <span class="stat-label">Primary Intent</span>
-                    <span class="stat-value">{{ profile.primary_intent or 'unknown' }}</span>
+                    <span class="stat-value">{{ (profile.primary_intent or 'unknown')|title }}</span>
                 </div>
                 <div class="stat-box">
                     <span class="stat-label">Highest Risk</span>
-                    <span class="stat-value">{{ profile.highest_risk or 'unknown' }}</span>
+                    <span class="stat-value">{{ (profile.highest_risk or 'unknown')|title }}</span>
                 </div>
                 <div class="stat-box">
                     <span class="stat-label">Total Commands</span>
-                    <span class="stat-value">{{ profile.total_commands or 0 }}</span>
+                    <span class="stat-value">{{ (profile.total_commands or 0)|intcomma }}</span>
                 </div>
             </div>
         </article>
@@ -213,7 +244,7 @@
     <section class="card" aria-label="Attack Timeline">
         <div class="card-header">
             <h2>Attack Timeline</h2>
-            <span class="subtle">First seen {{ (profile.first_seen or '')[:19] or '-' }} | Last seen {{ (profile.last_seen or '')[:19] or '-' }}</span>
+            <span class="subtle">{{ timeline_activity_text }}</span>
         </div>
 
         {% if timeline %}
@@ -222,14 +253,18 @@
             {% set width = ((point.sessions / timeline_max) * 100) if timeline_max else 0 %}
             <div class="timeline-row">
                 <span class="timeline-date">{{ point.date }}</span>
-                <div class="mini-track"><div class="mini-fill" style="width: {{ '%.2f'|format(width) }}%;"></div></div>
-                <span class="subtle">{{ point.sessions }}</span>
+                <div class="mini-track"><div class="mini-fill" data-width="{{ '%.2f'|format(width) }}"></div></div>
+                <span class="subtle">{{ point.sessions|intcomma }}</span>
             </div>
             {% endfor %}
         </div>
         {% else %}
         <p class="muted">No timeline data available for this IP.</p>
         {% endif %}
+
+        <div class="timeline-summary">
+            <span class="muted">{{ timeline_range_text }}</span>
+        </div>
     </section>
 
     <section class="breakdown-grid" aria-label="Distributions">
@@ -241,9 +276,9 @@
             <div class="breakdown-item">
                 <div class="breakdown-head">
                     <span>{{ label }}</span>
-                    <span>{{ count }} ({{ '%.1f'|format(pct) }}%)</span>
+                    <span>{{ count|intcomma }} ({{ '%.1f'|format(pct) }}%)</span>
                 </div>
-                <div class="mini-track"><div class="mini-fill bot" style="width: {{ '%.2f'|format(pct) }}%;"></div></div>
+                <div class="mini-track"><div class="mini-fill type-{{ key }}" data-width="{{ '%.2f'|format(pct) }}"></div></div>
             </div>
             {% endfor %}
         </article>
@@ -256,9 +291,9 @@
             <div class="breakdown-item">
                 <div class="breakdown-head">
                     <span>{{ label }}</span>
-                    <span>{{ count }} ({{ '%.1f'|format(pct) }}%)</span>
+                    <span>{{ count|intcomma }} ({{ '%.1f'|format(pct) }}%)</span>
                 </div>
-                <div class="mini-track"><div class="mini-fill intent" style="width: {{ '%.2f'|format(pct) }}%;"></div></div>
+                <div class="mini-track"><div class="mini-fill intent-{{ key }}" data-width="{{ '%.2f'|format(pct) }}"></div></div>
             </div>
             {% endfor %}
         </article>
@@ -271,9 +306,9 @@
             <div class="breakdown-item">
                 <div class="breakdown-head">
                     <span>{{ label }}</span>
-                    <span>{{ count }} ({{ '%.1f'|format(pct) }}%)</span>
+                    <span>{{ count|intcomma }} ({{ '%.1f'|format(pct) }}%)</span>
                 </div>
-                <div class="mini-track"><div class="mini-fill risk" style="width: {{ '%.2f'|format(pct) }}%;"></div></div>
+                <div class="mini-track"><div class="mini-fill risk-{{ key }}" data-width="{{ '%.2f'|format(pct) }}"></div></div>
             </div>
             {% endfor %}
         </article>
@@ -282,7 +317,7 @@
     <section class="card" aria-label="Commands">
         <div class="card-header">
             <h2>Commands</h2>
-            <span class="subtle">{{ total_unique_commands }} unique commands</span>
+            <span class="subtle">{{ total_unique_commands|intcomma }} unique commands</span>
         </div>
 
         {% if command_frequency %}
@@ -298,14 +333,14 @@
                     {% for command, count in command_frequency %}
                     <tr>
                         <td>{{ command }}</td>
-                        <td>{{ count }}</td>
+                        <td>{{ count|intcomma }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
         {% if remaining_command_count > 0 %}
-        <p class="muted" style="margin-top: 10px;">and {{ remaining_command_count }} more...</p>
+        <p class="muted" style="margin-top: 10px;">and {{ remaining_command_count|intcomma }} more...</p>
         {% endif %}
         {% else %}
         <p class="muted">No commands recorded for this IP.</p>
@@ -315,7 +350,7 @@
     <section class="card" aria-label="Sessions">
         <div class="card-header">
             <h2>Sessions</h2>
-            <span class="subtle">{{ total_count }} total | page {{ page }} of {{ total_pages }}</span>
+            <span class="subtle">{{ total_count|intcomma }} total | page {{ page }} of {{ total_pages }}</span>
         </div>
 
         {% if sessions %}
@@ -370,4 +405,15 @@
         </div>
     </section>
 </div>
+
+<script>
+    (function () {
+        const fills = Array.from(document.querySelectorAll(".mini-fill[data-width]"));
+        fills.forEach((fill) => {
+            const width = Number.parseFloat(fill.dataset.width || "0");
+            const bounded = Math.max(0, Math.min(100, Number.isFinite(width) ? width : 0));
+            fill.style.width = `${bounded}%`;
+        });
+    }());
+</script>
 {% endblock %}

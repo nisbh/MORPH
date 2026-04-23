@@ -3,19 +3,33 @@
 
 {% block content %}
 <style>
-    .controls-row {
+    .sessions-layout {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
-        gap: 12px;
-        align-items: end;
+        grid-template-columns: 280px minmax(0, 1fr);
+        align-items: start;
+        gap: 16px;
     }
 
-    .control-group {
+    .filter-panel {
+        position: sticky;
+        top: 76px;
         display: grid;
-        gap: 6px;
+        gap: 14px;
     }
 
-    .control-label {
+    .filter-group {
+        display: grid;
+        gap: 8px;
+        border-bottom: 1px solid rgba(48, 54, 61, 0.7);
+        padding-bottom: 12px;
+    }
+
+    .filter-group:last-of-type {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+
+    .filter-title {
         color: var(--text-secondary);
         font-size: 0.78rem;
         font-weight: 600;
@@ -23,17 +37,61 @@
         letter-spacing: 0.06em;
     }
 
+    .filter-option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .filter-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text);
+        cursor: pointer;
+    }
+
+    .filter-count {
+        color: var(--text-secondary);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .filter-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .content-stack {
+        display: grid;
+        gap: 12px;
+    }
+
+    .active-tags {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .active-tag {
+        border: 1px solid rgba(88, 166, 255, 0.4);
+        background: rgba(88, 166, 255, 0.12);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+
     .results-row,
     .pagination-row {
-        margin-top: 10px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-    }
-
-    .pagination-row {
-        margin-top: 0;
     }
 
     .sessions-table thead th {
@@ -49,15 +107,21 @@
         pointer-events: none;
     }
 
-    @media (max-width: 1220px) {
-        .controls-row {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+    @media (max-width: 1080px) {
+        .sessions-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .filter-panel {
+            position: static;
         }
     }
 
     @media (max-width: 780px) {
-        .controls-row {
-            grid-template-columns: 1fr;
+        .results-row,
+        .pagination-row {
+            flex-direction: column;
+            align-items: flex-start;
         }
     }
 </style>
@@ -68,121 +132,175 @@
         <span class="subtle">Server-side filtered dossier index</span>
     </div>
 
-    <section aria-label="Session Controls">
-        <form method="get" action="/sessions" class="controls-row">
-            <div class="control-group">
-                <label class="control-label" for="filter-type">Filter by Type</label>
-                <select id="filter-type" name="type" class="select">
-                    <option value="" {% if not filters.type %}selected{% endif %}>All</option>
-                    <option value="bot" {% if filters.type == 'bot' %}selected{% endif %}>Bot</option>
-                    <option value="human" {% if filters.type == 'human' %}selected{% endif %}>Human</option>
-                </select>
+    <section class="sessions-layout" aria-label="Session Controls and Results">
+        <form id="session-filter-form" method="get" action="/sessions" class="card filter-panel">
+            <input type="hidden" id="filter-type-hidden" name="type" value="{{ filter_query.type or '' }}">
+            <input type="hidden" id="filter-risk-hidden" name="risk" value="{{ filter_query.risk or '' }}">
+            <input type="hidden" id="filter-intent-hidden" name="intent" value="{{ filter_query.intent or '' }}">
+
+            <div class="filter-group">
+                <span class="filter-title">Type</span>
+                {% for value, label in [('bot', 'Bot'), ('human', 'Human')] %}
+                <label class="filter-option">
+                    <span class="filter-check">
+                        <input type="checkbox" data-filter="type" value="{{ value }}" {% if value in filters.type %}checked{% endif %}>
+                        <span>{{ label }}</span>
+                    </span>
+                    <span class="filter-count">({{ filter_counts.type[value]|intcomma }})</span>
+                </label>
+                {% endfor %}
             </div>
-            <div class="control-group">
-                <label class="control-label" for="filter-risk">Filter by Risk</label>
-                <select id="filter-risk" name="risk" class="select">
-                    <option value="" {% if not filters.risk %}selected{% endif %}>All</option>
-                    <option value="low" {% if filters.risk == 'low' %}selected{% endif %}>Low</option>
-                    <option value="medium" {% if filters.risk == 'medium' %}selected{% endif %}>Medium</option>
-                    <option value="high" {% if filters.risk == 'high' %}selected{% endif %}>High</option>
-                </select>
+
+            <div class="filter-group">
+                <span class="filter-title">Risk</span>
+                {% for value, label in [('high', 'High'), ('medium', 'Medium'), ('low', 'Low')] %}
+                <label class="filter-option">
+                    <span class="filter-check">
+                        <input type="checkbox" data-filter="risk" value="{{ value }}" {% if value in filters.risk %}checked{% endif %}>
+                        <span>{{ label }}</span>
+                    </span>
+                    <span class="filter-count">({{ filter_counts.risk[value]|intcomma }})</span>
+                </label>
+                {% endfor %}
             </div>
-            <div class="control-group">
-                <label class="control-label" for="filter-intent">Filter by Intent</label>
-                <select id="filter-intent" name="intent" class="select">
-                    <option value="" {% if not filters.intent %}selected{% endif %}>All</option>
-                    <option value="recon" {% if filters.intent == 'recon' %}selected{% endif %}>Recon</option>
-                    <option value="exploit" {% if filters.intent == 'exploit' %}selected{% endif %}>Exploit</option>
-                    <option value="persistence" {% if filters.intent == 'persistence' %}selected{% endif %}>Persistence</option>
-                </select>
+
+            <div class="filter-group">
+                <span class="filter-title">Intent</span>
+                {% for value, label in [('recon', 'Recon'), ('exploit', 'Exploit'), ('persistence', 'Persistence')] %}
+                <label class="filter-option">
+                    <span class="filter-check">
+                        <input type="checkbox" data-filter="intent" value="{{ value }}" {% if value in filters.intent %}checked{% endif %}>
+                        <span>{{ label }}</span>
+                    </span>
+                    <span class="filter-count">({{ filter_counts.intent[value]|intcomma }})</span>
+                </label>
+                {% endfor %}
             </div>
-            <button class="btn" type="submit">Apply Filters</button>
-            <a href="/sessions" class="btn ghost">Clear Filters</a>
+
+            <div class="filter-actions">
+                <button class="btn" type="submit">Apply</button>
+                <a href="/sessions" class="btn ghost">Clear All</a>
+            </div>
         </form>
 
-        <div class="results-row">
-            <span class="subtle">
-                {{ filtered_count }} results
-                {% if filtered_count != total_count %}(filtered from {{ total_count }}){% endif %}
-            </span>
-            <span class="subtle">Page {{ page }} of {{ total_pages }}</span>
-        </div>
-    </section>
+        <div class="content-stack">
+            <section class="card">
+                <div class="results-row">
+                    <span class="subtle">
+                        {{ filtered_count|intcomma }} results
+                        {% if filtered_count != total_count %}(filtered from {{ total_count|intcomma }}){% endif %}
+                    </span>
+                    <span class="subtle">Page {{ page }} of {{ total_pages }}</span>
+                </div>
 
-    <section class="card">
-        {% if sessions %}
-        <div class="table-wrap">
-            <table class="sessions-table">
-                <thead>
-                    <tr>
-                        <th>Session ID</th>
-                        <th>IP</th>
-                        <th>Duration</th>
-                        <th>Commands</th>
-                        <th>Type</th>
-                        <th>Intent</th>
-                        <th>Risk</th>
-                        <th>View</th>
-                    </tr>
-                </thead>
-                <tbody id="session-table-body">
-                    {% for item in sessions %}
-                    {% set s = item.session %}
-                    {% set c = item.classification %}
-                    <tr class="row-clickable session-row" data-href="/dossier/{{ s.session_id }}">
-                        <td>
-                            <a href="/dossier/{{ s.session_id }}" class="link">
-                                {{ s.session_id[:12] }}{% if s.session_id|length > 12 %}...{% endif %}
-                            </a>
-                        </td>
-                        <td>{{ s.src_ip or 'Unknown' }}</td>
-                        <td>{{ "%.1f"|format(s.duration_seconds or 0) }}s</td>
-                        <td>{{ s.commands|length }}</td>
-                        <td><span class="badge badge-{{ c.type or 'bot' }}">{{ c.type or 'unknown' }}</span></td>
-                        <td><span class="badge badge-{{ c.intent or 'recon' }}">{{ c.intent or 'unknown' }}</span></td>
-                        <td><span class="badge badge-{{ c.risk or 'low' }}">{{ c.risk or 'unknown' }}</span></td>
-                        <td><a href="/dossier/{{ s.session_id }}" class="btn ghost">View</a></td>
-                    </tr>
+                {% if active_filter_tags %}
+                <div class="active-tags" aria-label="Active filters">
+                    {% for tag in active_filter_tags %}
+                    <span class="active-tag">{{ tag }}</span>
                     {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="empty-state">
-            <p>No sessions found for the selected filters.</p>
-            <p>Try broadening the filter values or clear filters.</p>
-        </div>
-        {% endif %}
-    </section>
+                </div>
+                {% endif %}
+            </section>
 
-    <section class="pagination-row" aria-label="Pagination">
-        {% if has_prev %}
-        <a
-            class="btn ghost"
-            href="{{ url_for('sessions', page=prev_page, type=filters.type, risk=filters.risk, intent=filters.intent) }}"
-        >
-            Previous
-        </a>
-        {% else %}
-        <span class="btn ghost disabled">Previous</span>
-        {% endif %}
+            <section class="card">
+                {% if sessions %}
+                <div class="table-wrap">
+                    <table class="sessions-table">
+                        <thead>
+                            <tr>
+                                <th>Session ID</th>
+                                <th>IP</th>
+                                <th>Duration</th>
+                                <th>Commands</th>
+                                <th>Type</th>
+                                <th>Intent</th>
+                                <th>Risk</th>
+                                <th>View</th>
+                            </tr>
+                        </thead>
+                        <tbody id="session-table-body">
+                            {% for item in sessions %}
+                            {% set s = item.session %}
+                            {% set c = item.classification %}
+                            <tr class="row-clickable session-row" data-href="/dossier/{{ s.session_id }}">
+                                <td>
+                                    <a href="/dossier/{{ s.session_id }}" class="link">
+                                        {{ s.session_id[:12] }}{% if s.session_id|length > 12 %}...{% endif %}
+                                    </a>
+                                </td>
+                                <td>{{ s.src_ip or 'Unknown' }}</td>
+                                <td>{{ "%.1f"|format(s.duration_seconds or 0) }}s</td>
+                                <td>{{ s.commands|length }}</td>
+                                <td><span class="badge badge-{{ c.type if c.type in ['bot', 'human'] else 'human' }}">{{ c.type or 'unknown' }}</span></td>
+                                <td><span class="badge badge-{{ c.intent if c.intent in ['recon', 'exploit', 'persistence'] else 'recon' }}">{{ c.intent or 'unknown' }}</span></td>
+                                <td><span class="badge badge-{{ c.risk if c.risk in ['low', 'medium', 'high'] else 'low' }}">{{ c.risk or 'unknown' }}</span></td>
+                                <td><a href="/dossier/{{ s.session_id }}" class="btn ghost">View</a></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <p>No sessions found for the selected filters.</p>
+                    <p>Try broadening the filter values or clear filters.</p>
+                </div>
+                {% endif %}
+            </section>
 
-        {% if has_next %}
-        <a
-            class="btn ghost"
-            href="{{ url_for('sessions', page=next_page, type=filters.type, risk=filters.risk, intent=filters.intent) }}"
-        >
-            Next
-        </a>
-        {% else %}
-        <span class="btn ghost disabled">Next</span>
-        {% endif %}
+            <section class="pagination-row" aria-label="Pagination">
+                {% if has_prev %}
+                <a
+                    class="btn ghost"
+                    href="{{ url_for('sessions', page=prev_page, type=filter_query.type, risk=filter_query.risk, intent=filter_query.intent) }}"
+                >
+                    Previous
+                </a>
+                {% else %}
+                <span class="btn ghost disabled">Previous</span>
+                {% endif %}
+
+                {% if has_next %}
+                <a
+                    class="btn ghost"
+                    href="{{ url_for('sessions', page=next_page, type=filter_query.type, risk=filter_query.risk, intent=filter_query.intent) }}"
+                >
+                    Next
+                </a>
+                {% else %}
+                <span class="btn ghost disabled">Next</span>
+                {% endif %}
+            </section>
+        </div>
     </section>
 </div>
 
 <script>
     (function () {
+        const filterForm = document.getElementById("session-filter-form");
         const rows = Array.from(document.querySelectorAll(".session-row"));
+
+        const syncFilterHiddenInputs = () => {
+            if (!filterForm) {
+                return;
+            }
+
+            ["type", "risk", "intent"].forEach((group) => {
+                const selected = Array.from(filterForm.querySelectorAll(`input[data-filter="${group}"]:checked`))
+                    .map((el) => el.value);
+                const hidden = document.getElementById(`filter-${group}-hidden`);
+                if (hidden) {
+                    hidden.value = selected.join(",");
+                }
+            });
+        };
+
+        if (filterForm) {
+            filterForm.addEventListener("submit", () => {
+                syncFilterHiddenInputs();
+            });
+            syncFilterHiddenInputs();
+        }
 
         rows.forEach((row) => {
             row.addEventListener("click", (event) => {
