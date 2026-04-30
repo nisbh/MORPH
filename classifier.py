@@ -110,6 +110,11 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
     if duration < 1:
         bot_score += 10
         matched_rules.append("sub_second_session")
+
+    # Rule A: short probe sessions with no commands are likely scanners
+    if duration < 10 and len(commands) == 0:
+        bot_score += 6
+        matched_rules.append("short_probe_no_commands")
     
     # Instant disconnect: very short session with no commands
     if duration < 2 and len(commands) == 0:
@@ -157,6 +162,21 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
         bot_score += 3
         matched_rules.append(f"many_login_attempts:{len(login_attempts)}")
 
+    # Rule B: single failed login and quick disconnect with no commands
+    if (
+        len(login_attempts) == 1
+        and not login_attempts[0].get("success")
+        and len(commands) == 0
+        and duration < 15
+    ):
+        bot_score += 5
+        matched_rules.append("single_failed_login_disconnect")
+
+    # Rule C: credential stuffing pattern (many login attempts, no commands)
+    if len(login_attempts) >= 3 and len(commands) == 0:
+        bot_score += 6
+        matched_rules.append("credential_stuffing")
+
     # Rule 4b: Check if all passwords are common bot passwords
     if login_attempts:
         passwords = [a.get("password", "").lower() for a in login_attempts]
@@ -174,7 +194,7 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
     # Rule 5: Human indicators (can override bot signals)
     
     # 5a: Long duration with varied commands = human
-    if duration > 60 and commands:
+    if duration > 60 and len(commands) >= 2:
         unique_ratio = len(set(commands)) / len(commands)
         if unique_ratio > 0.5:
             human_score += 4
@@ -196,6 +216,10 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
     if cd_count > 2 and ls_count > 2:
         human_score += 2
         matched_rules.append("exploratory_behavior")
+
+    # Rule D: do not allow low-command sessions to override bot evidence
+    if bot_score > 0 and len(commands) < 2:
+        human_score = 0
 
     # === INTENT CLASSIFICATION ===
 
@@ -360,6 +384,89 @@ def test_bot_detection():
         passed += 1
     else:
         print("  ✗ FAIL - Expected type=human")
+        failed += 1
+
+    # Test 4 - Rule A short probe no commands
+    session4 = {
+        "commands": [],
+        "duration_seconds": 6,
+        "login_attempts": [],
+        "downloads": [],
+    }
+    result4 = classify_session(session4)
+    rule_match = "short_probe_no_commands" in result4["matched_rules"]
+
+    print("\nTest 4 - Short probe no commands:")
+    print("  Commands: 0, duration: 6s")
+    print(f"  Result: type={result4['type']}, rules={result4['matched_rules']}")
+    if result4["type"] == "bot" and rule_match:
+        print("  ✓ PASS")
+        passed += 1
+    else:
+        print("  ✗ FAIL - Expected type=bot with short_probe_no_commands rule")
+        failed += 1
+
+    # Test 5 - Rule B single failed login then disconnect
+    session5 = {
+        "commands": [],
+        "duration_seconds": 8,
+        "login_attempts": [{"username": "root", "password": "root", "success": False}],
+        "downloads": [],
+    }
+    result5 = classify_session(session5)
+    rule_match = "single_failed_login_disconnect" in result5["matched_rules"]
+
+    print("\nTest 5 - Single failed login disconnect:")
+    print("  Login attempts: 1 failed, commands: 0, duration: 8s")
+    print(f"  Result: type={result5['type']}, rules={result5['matched_rules']}")
+    if result5["type"] == "bot" and rule_match:
+        print("  ✓ PASS")
+        passed += 1
+    else:
+        print("  ✗ FAIL - Expected type=bot with single_failed_login_disconnect rule")
+        failed += 1
+
+    # Test 6 - Rule C credential stuffing pattern
+    session6 = {
+        "commands": [],
+        "duration_seconds": 20,
+        "login_attempts": [
+            {"username": "root", "password": "admin", "success": False},
+            {"username": "root", "password": "123456", "success": False},
+            {"username": "ubuntu", "password": "password", "success": False},
+        ],
+        "downloads": [],
+    }
+    result6 = classify_session(session6)
+    rule_match = "credential_stuffing" in result6["matched_rules"]
+
+    print("\nTest 6 - Credential stuffing:")
+    print("  Login attempts: 3 failed, commands: 0")
+    print(f"  Result: type={result6['type']}, rules={result6['matched_rules']}")
+    if result6["type"] == "bot" and rule_match:
+        print("  ✓ PASS")
+        passed += 1
+    else:
+        print("  ✗ FAIL - Expected type=bot with credential_stuffing rule")
+        failed += 1
+
+    # Test 7 - Rule D keeps low-command bot evidence from being human
+    session7 = {
+        "commands": ["vim /etc/hosts"],
+        "duration_seconds": 0.5,
+        "login_attempts": [],
+        "downloads": [],
+    }
+    result7 = classify_session(session7)
+
+    print("\nTest 7 - Human override guard:")
+    print("  One interactive command in sub-second session")
+    print(f"  Result: type={result7['type']}, rules={result7['matched_rules']}")
+    if result7["type"] == "bot" and "sub_second_session" in result7["matched_rules"]:
+        print("  ✓ PASS")
+        passed += 1
+    else:
+        print("  ✗ FAIL - Expected type=bot due bot evidence with <2 commands")
         failed += 1
     
     # Summary

@@ -18,6 +18,7 @@ from deception import initialize as init_deception, adapt
 from adaptor import adapt_environment, generate_adaptation_report
 from osint import enrich_all_dossiers
 from app import app
+from cleanup import count_dossiers, run_cleanup
 
 
 def process_sessions() -> int:
@@ -87,6 +88,14 @@ def process_sessions() -> int:
     print(f"  By risk: {summary['by_risk']}")
     print(f"  By intent: {summary['by_intent']}")
     print("-" * 60)
+
+    # Step 6: Dossier cleanup safeguard (only above hard limit)
+    dossier_count = count_dossiers()
+    if dossier_count > 5000:
+        print("\n[6/6] Running dossier cleanup...")
+        run_cleanup()
+    else:
+        print(f"\n[6/6] Dossier cleanup not needed ({dossier_count} <= 5000)")
 
     return len(sessions)
 
