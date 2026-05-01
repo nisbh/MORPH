@@ -10,6 +10,9 @@ Orchestrates the honeypot analysis pipeline:
 5. Start Flask web UI
 """
 
+import json
+from datetime import datetime
+from pathlib import Path
 import sys
 from log_parser import parse_cowrie_log, print_summary, COWRIE_LOG
 from classifier import classify_session
@@ -19,6 +22,33 @@ from adaptor import adapt_environment, generate_adaptation_report
 from osint import enrich_all_dossiers
 from app import app
 from cleanup import count_dossiers, run_cleanup
+
+STATS_PATH = Path(__file__).parent / "morph" / "stats.json"
+
+
+def update_total_attacks(session_count: int) -> None:
+    """Persist the running total of attacks across pipeline runs."""
+    safe_count = max(0, int(session_count or 0))
+    stats_path = Path(STATS_PATH)
+    stats_path.parent.mkdir(parents=True, exist_ok=True)
+    now_iso = datetime.utcnow().isoformat() + "Z"
+
+    try:
+        with open(stats_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        total_attacks = int(data.get("total_attacks", 0))
+    except FileNotFoundError:
+        data = {}
+        total_attacks = 0
+    except (json.JSONDecodeError, IOError, TypeError, ValueError):
+        data = {}
+        total_attacks = 0
+
+    data["total_attacks"] = total_attacks + safe_count
+    data["last_updated"] = now_iso
+
+    with open(stats_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
 
 def process_sessions() -> int:
@@ -96,6 +126,8 @@ def process_sessions() -> int:
         run_cleanup()
     else:
         print(f"\n[6/6] Dossier cleanup not needed ({dossier_count} <= 5000)")
+
+    update_total_attacks(len(sessions))
 
     return len(sessions)
 

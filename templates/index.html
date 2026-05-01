@@ -282,6 +282,10 @@
                         <p class="metric-value value-warning">{{ by_risk.medium or 0 }}</p>
                     </article>
                 </a>
+                <article class="card metric-card stat-card">
+                    <p class="metric-label">Total Attacks Recorded</p>
+                    <p class="metric-value value-accent">{{ total_attacks|intcomma }}</p>
+                </article>
             </section>
 
             <p class="subtle last-attack">Last attack: {{ last_attack_ago }}</p>

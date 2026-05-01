@@ -25,6 +25,7 @@ app = Flask(__name__)
 
 DECEPTION_LOG = "morph/deception.log"
 COWRIE_JSON_LOG = Path("/home/cowrie/cowrie/var/log/cowrie/cowrie.json")
+STATS_FILE = Path(__file__).parent / "morph" / "stats.json"
 CACHE_TTL_SECONDS = 60
 SESSIONS_PER_PAGE = 50
 IP_DETAIL_SESSIONS_PER_PAGE = 20
@@ -53,6 +54,9 @@ _total_sessions_count_cache = 0
 
 _ip_profiles_cache: dict[str, dict[str, Any]] | None = None
 _ip_profiles_cache_time = 0
+
+_stats_cache: dict[str, Any] | None = None
+_stats_cache_time = 0
 
 _enrichment_lock = threading.Lock()
 _enrichment_in_progress = False
@@ -385,6 +389,39 @@ def get_cached_dashboard_data() -> dict[str, Any]:
         "recent_activity": [],
         "last_attack_ago": "unknown",
     }
+
+
+def _load_stats_file() -> dict[str, Any]:
+    """Load stats.json data from disk."""
+    if not STATS_FILE.exists():
+        return {"total_attacks": 0, "last_updated": None}
+
+    try:
+        with open(STATS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {"total_attacks": 0, "last_updated": None}
+
+    try:
+        total_attacks = int(data.get("total_attacks", 0))
+    except (TypeError, ValueError):
+        total_attacks = 0
+
+    return {
+        "total_attacks": total_attacks,
+        "last_updated": data.get("last_updated"),
+    }
+
+
+def get_cached_stats() -> dict[str, Any]:
+    """Return cached stats.json data for 60s TTL."""
+    global _stats_cache, _stats_cache_time
+
+    if _stats_cache is None or _cache_expired(_stats_cache_time):
+        _stats_cache = _load_stats_file()
+        _stats_cache_time = time.time()
+
+    return _stats_cache or {"total_attacks": 0, "last_updated": None}
 
 
 def _calculate_threat_score(profile: dict[str, Any]) -> int:
@@ -817,6 +854,7 @@ def index():
     """Dashboard with summary statistics."""
     summary = get_cached_summary()
     dashboard_data = get_cached_dashboard_data()
+    stats = get_cached_stats()
 
     return render_template(
         "index.html",
@@ -825,6 +863,7 @@ def index():
         top_attacker_ips=dashboard_data["top_attacker_ips"],
         recent_activity=dashboard_data["recent_activity"],
         last_attack_ago=dashboard_data["last_attack_ago"],
+        total_attacks=int(stats.get("total_attacks", 0) or 0),
     )
 
 
