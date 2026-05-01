@@ -179,7 +179,7 @@ def classify_session(session: dict[str, Any]) -> dict[str, Any]:
 
     # Rule 4b: Check if all passwords are common bot passwords
     if login_attempts:
-        passwords = [a.get("password", "").lower() for a in login_attempts]
+        passwords = [a.get("password", "") .lower() for a in login_attempts if a and isinstance(a, dict) and a.get("password") is not None]        
         bot_passwords = sum(1 for p in passwords if any(common in p for common in COMMON_BOT_PASSWORDS))
         if bot_passwords == len(passwords) and len(passwords) >= 2:
             bot_score += 3
