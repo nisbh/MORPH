@@ -584,6 +584,9 @@
                 <a href="/" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">Dashboard</a>
                 <a href="/sessions" class="nav-link {% if request.endpoint in ['sessions', 'dossier_detail'] %}active{% endif %}">Sessions</a>
                 <a href="/intelligence" class="nav-link {% if request.endpoint in ['intelligence', 'intelligence_detail'] %}active{% endif %}">Intelligence</a>
+                <a href="/map" class="nav-link {% if request.endpoint == 'map_view' %}active{% endif %}">Map</a>
+                <a href="/timeline" class="nav-link {% if request.endpoint == 'timeline_view' %}active{% endif %}">Timeline</a>
+                <a href="/commands" class="nav-link {% if request.endpoint == 'commands_view' %}active{% endif %}">Commands</a>
                 <a href="/live-logs" class="nav-link {% if request.endpoint in ['live_logs', 'api_logs'] %}active{% endif %}">Live Logs</a>
                 <a href="/about" class="nav-link {% if request.endpoint == 'about' %}active{% endif %}">About</a>
             </nav>

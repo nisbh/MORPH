@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Timeline - MORPH{% endblock %}
+
+{% block content %}
+<style>
+    .chart-card {
+        padding: 20px;
+    }
+
+    .chart-wrap {
+        position: relative;
+        height: 420px;
+    }
+
+    .chart-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 12px;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    @media (max-width: 720px) {
+        .chart-wrap {
+            height: 320px;
+        }
+
+        .chart-meta {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+</style>
+
+<div class="section-stack">
+    <div class="card-header">
+        <h1>Attack Timeline</h1>
+        <span class="subtle">Sessions by day (last 30 days)</span>
+    </div>
+
+    <section class="card chart-card" aria-label="Attack timeline chart">
+        <div class="chart-wrap">
+            <canvas id="timelineChart"></canvas>
+        </div>
+        <div class="chart-meta">
+            <span>Total sessions: {{ counts|sum }}</span>
+            <span>UTC time window</span>
+        </div>
+    </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+    const labels = {{ labels|tojson }};
+    const counts = {{ counts|tojson }};
+
+    const ctx = document.getElementById("timelineChart");
+    const chart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: "Sessions",
+                    data: counts,
+                    borderColor: "#58a6ff",
+                    backgroundColor: "rgba(88, 166, 255, 0.15)",
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 2.5,
+                    pointHoverRadius: 4,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    ticks: {
+                        color: "#8b949e",
+                        maxRotation: 0,
+                        autoSkip: true,
+                        maxTicksLimit: 6,
+                    },
+                    grid: {
+                        color: "rgba(48, 54, 61, 0.55)",
+                    },
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        color: "#8b949e",
+                        precision: 0,
+                    },
+                    grid: {
+                        color: "rgba(48, 54, 61, 0.55)",
+                    },
+                },
+            },
+            plugins: {
+                legend: {
+                    labels: {
+                        color: "#e6edf3",
+                    },
+                },
+                tooltip: {
+                    backgroundColor: "#0f141b",
+                    titleColor: "#e6edf3",
+                    bodyColor: "#e6edf3",
+                    borderColor: "#30363d",
+                    borderWidth: 1,
+                },
+            },
+        },
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Map - MORPH{% endblock %}
+
+{% block content %}
+<style>
+    .map-card {
+        padding: 0;
+        overflow: hidden;
+    }
+
+    #map {
+        height: 560px;
+        width: 100%;
+        background: #0f141b;
+    }
+
+    .map-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 20px;
+        border-top: 1px solid var(--border);
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .leaflet-control-zoom a {
+        background: #0f141b;
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+
+    .leaflet-bar a:hover {
+        background: #161b22;
+        color: var(--text);
+    }
+
+    .leaflet-popup-content-wrapper,
+    .leaflet-popup-tip {
+        background: #0f141b;
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+
+    .map-popup {
+        display: grid;
+        gap: 6px;
+        font-size: 0.85rem;
+    }
+
+    .map-popup-title {
+        font-weight: 600;
+    }
+
+    .map-popup-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    @media (max-width: 720px) {
+        #map {
+            height: 420px;
+        }
+
+        .map-meta {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+</style>
+
+<div class="section-stack">
+    <div class="card-header">
+        <h1>Geolocation Map</h1>
+        <span class="subtle">Unique IPs with OSINT coordinates</span>
+    </div>
+
+    <section class="card map-card" aria-label="Geolocation map">
+        <div id="map"></div>
+        <div class="map-meta">
+            <span>Total plotted IPs: {{ markers|length }}</span>
+            {% if not markers %}
+            <span>No dossiers include lat/long OSINT data yet.</span>
+            {% endif %}
+        </div>
+    </section>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const markers = {{ markers|tojson }};
+    const map = L.map("map", { zoomControl: true }).setView([20, 0], 2);
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+        maxZoom: 18,
+    }).addTo(map);
+
+    const esc = (value) => L.Util.escapeHTML(String(value || "-"));
+    const bounds = [];
+
+    markers.forEach((entry) => {
+        const lat = Number(entry.lat);
+        const lon = Number(entry.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            return;
+        }
+
+        const popup = `
+            <div class="map-popup">
+                <div class="map-popup-title">${esc(entry.ip)}</div>
+                <div class="map-popup-row"><span>Country</span><span>${esc(entry.country)}</span></div>
+                <div class="map-popup-row"><span>City</span><span>${esc(entry.city)}</span></div>
+                <div class="map-popup-row"><span>Type</span><span>${esc(entry.type)}</span></div>
+                <div class="map-popup-row"><span>Risk</span><span>${esc(entry.risk)}</span></div>
+            </div>
+        `;
+
+        L.marker([lat, lon]).addTo(map).bindPopup(popup, { maxWidth: 220 });
+        bounds.push([lat, lon]);
+    });
+
+    if (bounds.length) {
+        map.fitBounds(bounds, { padding: [30, 30] });
+    }
+</script>
+{% endblock %}

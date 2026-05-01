@@ -8,7 +8,7 @@ Dashboard for viewing honeypot sessions, classifications, and live logs.
 from __future__ import annotations
 
 from collections import Counter, deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 from math import ceil
 from pathlib import Path
@@ -57,6 +57,15 @@ _ip_profiles_cache_time = 0
 
 _stats_cache: dict[str, Any] | None = None
 _stats_cache_time = 0
+
+_map_cache: list[dict[str, Any]] | None = None
+_map_cache_time = 0
+
+_timeline_cache: dict[str, Any] | None = None
+_timeline_cache_time = 0
+
+_commands_cache: dict[str, Any] | None = None
+_commands_cache_time = 0
 
 _enrichment_lock = threading.Lock()
 _enrichment_in_progress = False
@@ -389,6 +398,159 @@ def get_cached_dashboard_data() -> dict[str, Any]:
         "recent_activity": [],
         "last_attack_ago": "unknown",
     }
+
+
+def _parse_osint_coordinates(osint: dict[str, Any]) -> tuple[float, float] | None:
+    """Return (lat, lon) from osint data if available and valid."""
+    if not osint:
+        return None
+
+    lat = None
+    lon = None
+
+    loc = osint.get("loc")
+    if isinstance(loc, str) and "," in loc:
+        parts = [p.strip() for p in loc.split(",", 1)]
+        if len(parts) == 2:
+            lat, lon = parts
+    else:
+        lat = osint.get("latitude", osint.get("lat"))
+        lon = osint.get("longitude", osint.get("lon", osint.get("lng")))
+
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except (TypeError, ValueError):
+        return None
+
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+
+    return lat, lon
+
+
+def _risk_rank(value: str | None) -> int:
+    """Return numeric rank for risk comparisons."""
+    order = {"low": 0, "medium": 1, "high": 2}
+    return order.get(str(value or "").lower(), 0)
+
+
+def get_cached_map_data() -> list[dict[str, Any]]:
+    """Return cached map marker data for 60s TTL."""
+    global _map_cache, _map_cache_time
+
+    if _map_cache is None or _cache_expired(_map_cache_time):
+        dossiers = load_all()
+        markers_by_ip: dict[str, dict[str, Any]] = {}
+
+        for dossier in dossiers:
+            ip = dossier.get("src_ip")
+            if not ip:
+                continue
+
+            osint = dossier.get("osint") or {}
+            coords = _parse_osint_coordinates(osint)
+            if not coords:
+                continue
+
+            classification = dossier.get("classification") or {}
+            entry = {
+                "ip": ip,
+                "lat": coords[0],
+                "lon": coords[1],
+                "country": osint.get("country") or "-",
+                "city": osint.get("city") or "-",
+                "type": classification.get("type") or "unknown",
+                "risk": classification.get("risk") or "unknown",
+            }
+
+            if ip not in markers_by_ip:
+                markers_by_ip[ip] = entry
+                continue
+
+            existing = markers_by_ip[ip]
+            if _risk_rank(entry["risk"]) > _risk_rank(existing.get("risk")):
+                markers_by_ip[ip] = entry
+
+        _map_cache = list(markers_by_ip.values())
+        _map_cache_time = time.time()
+
+    return _map_cache or []
+
+
+def get_cached_timeline_data() -> dict[str, Any]:
+    """Return cached 30-day timeline data for 60s TTL."""
+    global _timeline_cache, _timeline_cache_time
+
+    if _timeline_cache is None or _cache_expired(_timeline_cache_time):
+        now = datetime.now(timezone.utc)
+        start_date = (now - timedelta(days=29)).date()
+        end_date = now.date()
+
+        counts: dict[str, int] = {}
+        dossiers = load_all()
+        for dossier in dossiers:
+            start_time = parse_iso_datetime(dossier.get("start_time"))
+            if not start_time:
+                continue
+            day = start_time.date()
+            if day < start_date or day > end_date:
+                continue
+            key = day.isoformat()
+            counts[key] = counts.get(key, 0) + 1
+
+        labels: list[str] = []
+        values: list[int] = []
+        current = start_date
+        while current <= end_date:
+            key = current.isoformat()
+            labels.append(key)
+            values.append(int(counts.get(key, 0)))
+            current += timedelta(days=1)
+
+        _timeline_cache = {"labels": labels, "counts": values}
+        _timeline_cache_time = time.time()
+
+    return _timeline_cache or {"labels": [], "counts": []}
+
+
+def get_cached_commands_data() -> dict[str, Any]:
+    """Return cached command frequency data for 60s TTL."""
+    global _commands_cache, _commands_cache_time
+
+    if _commands_cache is None or _cache_expired(_commands_cache_time):
+        dossiers = load_all()
+        counter = Counter()
+
+        for dossier in dossiers:
+            commands = dossier.get("commands") or []
+            for command in commands:
+                text = str(command or "").strip()
+                if not text:
+                    continue
+                counter[text] += 1
+
+        top = counter.most_common(50)
+        max_count = top[0][1] if top else 0
+
+        rows = []
+        for idx, (command, count) in enumerate(top, start=1):
+            bar_pct = (count / max_count * 100) if max_count else 0
+            rows.append({
+                "rank": idx,
+                "command": command,
+                "count": count,
+                "bar_pct": bar_pct,
+            })
+
+        _commands_cache = {
+            "rows": rows,
+            "total": sum(counter.values()),
+            "max_count": max_count,
+        }
+        _commands_cache_time = time.time()
+
+    return _commands_cache or {"rows": [], "total": 0, "max_count": 0}
 
 
 def _load_stats_file() -> dict[str, Any]:
@@ -864,6 +1026,35 @@ def index():
         recent_activity=dashboard_data["recent_activity"],
         last_attack_ago=dashboard_data["last_attack_ago"],
         total_attacks=int(stats.get("total_attacks", 0) or 0),
+    )
+
+
+@app.route("/map")
+def map_view():
+    """Geolocation map of unique attacker IPs."""
+    markers = get_cached_map_data()
+    return render_template("map.html", markers=markers)
+
+
+@app.route("/timeline")
+def timeline_view():
+    """Timeline chart of sessions over the last 30 days."""
+    timeline = get_cached_timeline_data()
+    return render_template(
+        "timeline.html",
+        labels=timeline.get("labels", []),
+        counts=timeline.get("counts", []),
+    )
+
+
+@app.route("/commands")
+def commands_view():
+    """Top command leaderboard."""
+    data = get_cached_commands_data()
+    return render_template(
+        "commands.html",
+        commands=data.get("rows", []),
+        total_commands=data.get("total", 0),
     )
 
 

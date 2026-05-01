@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Commands - MORPH{% endblock %}
+
+{% block content %}
+<style>
+    .command-table td {
+        vertical-align: middle;
+    }
+
+    .command-text {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        color: var(--text);
+        word-break: break-word;
+    }
+
+    .bar-track {
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(88, 166, 255, 0.16);
+        border: 1px solid rgba(88, 166, 255, 0.3);
+        overflow: hidden;
+    }
+
+    .bar-fill {
+        height: 100%;
+        background: var(--accent);
+        width: 0;
+    }
+
+    .rank-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(88, 166, 255, 0.35);
+        color: var(--accent);
+        font-weight: 600;
+        font-size: 0.78rem;
+        background: rgba(88, 166, 255, 0.12);
+    }
+
+    .commands-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    @media (max-width: 720px) {
+        .commands-meta {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+</style>
+
+<div class="section-stack">
+    <div class="card-header">
+        <h1>Top Commands</h1>
+        <span class="subtle">Top 50 commands across all dossiers</span>
+    </div>
+
+    <section class="card">
+        <div class="commands-meta" style="margin-bottom: 16px;">
+            <span>Total commands observed: {{ total_commands }}</span>
+            <span>Sorted by frequency</span>
+        </div>
+
+        {% if commands %}
+        <div class="table-wrap">
+            <table class="command-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Command</th>
+                        <th>Count</th>
+                        <th>Volume</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in commands %}
+                    <tr>
+                        <td><span class="rank-pill">{{ row.rank }}</span></td>
+                        <td><span class="command-text">{{ row.command }}</span></td>
+                        <td>{{ row.count }}</td>
+                        <td>
+                            <div class="bar-track" aria-hidden="true">
+                                <div class="bar-fill" style="width: {{ '%.2f'|format(row.bar_pct) }}%;"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>No command data available yet.</p>
+            <p>Generate dossiers to populate the command leaderboard.</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
