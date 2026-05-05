@@ -90,18 +90,18 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-    const markers = {{ markers|tojson }};
-    const map = L.map("map", { zoomControl: true }).setView([20, 0], 2);
+    const attackerMarkers = {{ markers|tojson }};
+    const leafletMap = L.map("map", { zoomControl: true }).setView([20, 0], 2);
 
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
         maxZoom: 18,
-    }).addTo(map);
+    }).addTo(leafletMap);
 
-    const esc = (value) => L.Util.escapeHTML(String(value || "-"));
+    const esc = (value) => String(value || "-").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const bounds = [];
 
-    markers.forEach((entry) => {
+    attackerMarkers.forEach((entry) => {
         const lat = Number(entry.lat);
         const lon = Number(entry.lon);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -118,12 +118,12 @@
             </div>
         `;
 
-        L.marker([lat, lon]).addTo(map).bindPopup(popup, { maxWidth: 220 });
+        L.marker([lat, lon]).addTo(leafletMap).bindPopup(popup, { maxWidth: 220 });
         bounds.push([lat, lon]);
     });
 
     if (bounds.length) {
-        map.fitBounds(bounds, { padding: [30, 30] });
+        leafletMap.fitBounds(bounds, { padding: [30, 30] });
     }
 </script>
 {% endblock %}
