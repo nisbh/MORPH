@@ -114,10 +114,21 @@ def enrich_ip(ip: str) -> dict[str, Any]:
             "country_flag": get_country_flag(country_code),
             "org": data.get("org"),
             "timezone": data.get("timezone"),
+            "latitude": None,
+            "longitude": None,
             "is_tor": False,
             "is_vpn": False,
             "is_private": False,
         }
+
+        loc = data.get("loc", "")
+        if loc and "," in loc:
+            try:
+                lat, lon = loc.split(",")
+                result["latitude"] = float(lat)
+                result["longitude"] = float(lon)
+            except ValueError:
+                pass
 
         # Check for Tor/VPN indicators in org field
         org_lower = (data.get("org") or "").lower()
