@@ -88,7 +88,10 @@
 </div>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 <script>
     const attackerMarkers = {{ markers|tojson }};
     const leafletMap = L.map("map", { zoomControl: true }).setView([20, 0], 2);
@@ -99,6 +102,31 @@
     }).addTo(leafletMap);
 
     const esc = (value) => String(value || "-").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const riskColors = {
+        high: "#ef4444",
+        medium: "#f97316",
+        low: "#3b82f6",
+        unknown: "#6b7280",
+    };
+    const clusterGroup = L.markerClusterGroup({
+        showCoverageOnHover: false,
+        maxClusterRadius: 48,
+        iconCreateFunction: (cluster) => {
+            const count = cluster.getChildCount();
+            const size = count < 10 ? 32 : count < 50 ? 38 : 44;
+            const html = `
+                <div style="width:${size}px;height:${size}px;border-radius:50%;background:rgba(17,24,39,0.9);border:1px solid rgba(148,163,184,0.7);display:flex;align-items:center;justify-content:center;color:#e5e7eb;font-weight:600;box-shadow:0 6px 14px rgba(0,0,0,0.4);">
+                    ${count}
+                </div>
+            `;
+            return L.divIcon({
+                html,
+                className: "morph-cluster",
+                iconSize: [size, size],
+            });
+        },
+    });
+    clusterGroup.addTo(leafletMap);
     const bounds = [];
 
     attackerMarkers.forEach((entry) => {
@@ -107,6 +135,16 @@
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
             return;
         }
+
+        const risk = String(entry.risk || "unknown").toLowerCase();
+        const color = riskColors[risk] || riskColors.unknown;
+        const icon = L.divIcon({
+            className: "risk-marker",
+            html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:1px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.45);"></div>`,
+            iconSize: [12, 12],
+            iconAnchor: [6, 6],
+            popupAnchor: [0, -6],
+        });
 
         const popup = `
             <div class="map-popup">
@@ -118,7 +156,9 @@
             </div>
         `;
 
-        L.marker([lat, lon]).addTo(leafletMap).bindPopup(popup, { maxWidth: 220 });
+        const marker = L.marker([lat, lon], { icon });
+        marker.bindPopup(popup, { maxWidth: 220 });
+        clusterGroup.addLayer(marker);
         bounds.push([lat, lon]);
     });
 
