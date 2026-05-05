@@ -126,22 +126,5 @@ def process_sessions() -> int:
     return len(sessions)
 
 
-def main():
-    """Main entry point."""
-    # Process existing logs and adapt environment
-    process_sessions()
-
-    # Start Flask app
-    print("\n[*] Starting MORPH Web UI...")
-    print("[*] Dashboard: http://localhost:5000")
-    print("[*] Press Ctrl+C to stop\n")
-
-    try:
-        app.run(debug=False, host="0.0.0.0", port=5000)
-    except KeyboardInterrupt:
-        print("\n[*] Shutting down MORPH...")
-        sys.exit(0)
-
-
 if __name__ == "__main__":
-    main()
+    process_sessions()
