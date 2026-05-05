@@ -19,7 +19,6 @@ from classifier import classify_session
 from dossier import generate, summarize_all, DOSSIERS_DIR
 from deception import initialize as init_deception, adapt
 from adaptor import adapt_environment, generate_adaptation_report
-from osint import enrich_all_dossiers
 from app import app
 from cleanup import count_dossiers, run_cleanup
 
@@ -84,11 +83,6 @@ def process_sessions() -> int:
         classification = classifications[session_id]
         generate(session, classification)
     print(f"      Generated {len(sessions)} dossiers")
-
-    # Step 3.5: OSINT enrichment
-    print("\n[3.5/5] Enriching dossiers with OSINT...")
-    osint_result = enrich_all_dossiers(DOSSIERS_DIR)
-    print(f"      Enriched: {osint_result['enriched']}, Skipped: {osint_result['skipped']}, Failed: {osint_result['failed']}")
 
     # Step 4: Initialize deception & adapt per-session
     print("\n[4/5] Running deception adaptations...")
